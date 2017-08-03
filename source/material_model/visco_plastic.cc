@@ -211,6 +211,27 @@ namespace aspect
                                          std::exp((activation_energies_dislocation[j] + pressure*activation_volumes_dislocation[j])/
                                                   (constants::gas_constant*temperature*stress_exponents_dislocation[j])) *
                                          std::pow(edot_ii,((1. - stress_exponents_dislocation[j])/stress_exponents_dislocation[j]));
+         
+	  // For lava.
+          const double ref_visc = reference_viscosity();
+	  double dTemp    = initial_temp[j]-temperature;
+	  if( dTemp < 0.0) dTemp = 0;
+	  const double crystal_frac_increment = 0.5*(initial_temp[j]-solidus_temp[j])/initial_temp[j];	
+	  const double max_crystal_frac = initial_crystal_frac[j]+crystal_frac_increment+0.1;
+	  double vol_frac_of_crystal; 
+          if( temperature > solidus_temp[j] ) {
+              vol_frac_of_crystal = initial_crystal_frac[j] + crystal_frac_increment*dTemp/(initial_temp[j]-solidus_temp[j]);
+          }
+          else{ vol_frac_of_crystal = max_crystal_frac - 0.1; }
+	  double crysfrac_factor = std::pow((1.0-vol_frac_of_crystal/max_crystal_frac),-2.5); 
+          //std::cerr << "Value of crystalfraction factor is "<< crysfrac_factor <<endl;
+	  double viscosity_lava;
+          if( dTemp > 0.0 ) {
+              viscosity_lava = alpha[j] * ( ref_visc * crysfrac_factor * std::exp(gamma * dTemp) ) 
+               	   + beta[j] * viscosity_water;
+          }
+          else{ viscosity_lava = ref_visc; }
+	//std::cerr << "Value of lava viscosity is "<< viscosity_lava << endl;
 
           // Composite viscosity
           double viscosity_composite = (viscosity_diffusion * viscosity_dislocation)/(viscosity_diffusion + viscosity_dislocation);
@@ -232,6 +253,11 @@ namespace aspect
               case composite:
               {
                 viscosity_pre_yield = viscosity_composite;
+                break;
+              }
+              case lava:
+              {
+                viscosity_pre_yield = viscosity_lava;
                 break;
               }
               default:
@@ -547,6 +573,7 @@ namespace aspect
       {
         prm.enter_subsection ("Visco Plastic");
         {
+
           // Reference and minimum/maximum values
           prm.declare_entry ("Reference temperature", "293", Patterns::Double(0),
                              "For calculating density by thermal expansivity. Units: $K$");
@@ -632,7 +659,7 @@ namespace aspect
                              "viscosity at that point.  Select a weighted harmonic, arithmetic, "
                              "geometric, or maximum composition.");
           prm.declare_entry ("Viscous flow law", "composite",
-                             Patterns::Selection("diffusion|dislocation|composite"),
+                             Patterns::Selection("diffusion|dislocation|composite|lava"),
                              "Select what type of viscosity law to use between diffusion, "
                              "dislocation and composite options. Soon there will be an option "
                              "to select a specific flow law for each assigned composition ");
@@ -716,6 +743,36 @@ namespace aspect
                              "The default value of 1 ensures the entire stress limiter term is set to 1 "
                              "and does not affect the viscosity. Units: none.");
 
+	// Lava parameters 
+	prm.declare_entry ("Maximum crystal fraction", "0.68",
+                            Patterns::List(Patterns::Double(0)),
+
+                             "List of max crystal fractions, $A$, for background material and compositional fields, "
+                             "for a total of N+1 values, where N is the number of compositional fields. "
+                             "If only one value is given, then all use the same value. ");
+	prm.declare_entry ("Initial crystal fraction", "0.0",
+                             Patterns::List(Patterns::Double(0)),
+			     "Units: n/a");
+	prm.declare_entry ("Crystal fraction increment", "0.0",
+                             Patterns::List(Patterns::Double(0)),
+			     "Units: n/a");
+        prm.declare_entry ("Initial temperature", "873",
+                             Patterns::List(Patterns::Double(0)),
+                             "Units: n/a");
+        prm.declare_entry ("Solidus temperature", "1373",
+                             Patterns::List(Patterns::Double(0)),
+                             "Units: n/a");
+	prm.declare_entry ("Gamma", "0.04", Patterns::Double(0),
+                             "For calculating lava viscosity. Units: n/a");
+        prm.declare_entry ("Alpha", "0.0",
+                             Patterns::List(Patterns::Double(0)),
+                             "Units: n/a");
+        prm.declare_entry ("Beta", "0.0",
+                             Patterns::List(Patterns::Double(0)),
+                             "Units: n/a");
+        prm.declare_entry ("Viscosity water", "0.0",
+                             Patterns::List(Patterns::Double(0)),
+                             "Units: n/a");
         }
         prm.leave_subsection();
       }
@@ -808,6 +865,8 @@ namespace aspect
             viscous_flow_law = diffusion;
           else if (prm.get ("Viscous flow law") == "dislocation")
             viscous_flow_law = dislocation;
+          else if (prm.get ("Viscous flow law") == "lava")
+            viscous_flow_law = lava;
           else
             AssertThrow(false, ExcMessage("Not a valid viscous flow law"));
 
@@ -863,7 +922,26 @@ namespace aspect
           exponents_stress_limiter  = Utilities::possibly_extend_from_1_to_N (Utilities::string_to_double(Utilities::split_string_list(prm.get("Stress limiter exponents"))),
                                                                               n_fields,
                                                                               "Stress limiter exponents");
-        }
+
+	// Lava parameters 
+	max_crystal_frac = Utilities::possibly_extend_from_1_to_N (Utilities::string_to_double(Utilities::split_string_list(prm.get("Maximum crystal fraction"))),           
+ 									n_fields,	                                                                              					"Maximum crystal fraction");
+       
+        initial_crystal_frac = Utilities::possibly_extend_from_1_to_N (Utilities::string_to_double(Utilities::split_string_list(prm.get("Initial crystal fraction"))),
+                                                                         n_fields,                                                                                                                      "Initial crystal fraction");
+        crystal_frac_increment = Utilities::possibly_extend_from_1_to_N (Utilities::string_to_double(Utilities::split_string_list(prm.get("Crystal fraction increment"))),
+                                                                         n_fields,                                                                                                                      "Crystal fraction increment");
+        initial_temp = Utilities::possibly_extend_from_1_to_N (Utilities::string_to_double(Utilities::split_string_list(prm.get("Initial temperature"))),
+                                                                         n_fields,                                                                                                                      "Initial temperature");
+        solidus_temp = Utilities::possibly_extend_from_1_to_N (Utilities::string_to_double(Utilities::split_string_list(prm.get("Solidus temperature"))),
+                                                                         n_fields,                                                                                                                      "Solidus temperature");
+	gamma = prm.get_double("Gamma");
+        viscosity_water = prm.get_double("Viscosity water");
+        alpha = Utilities::possibly_extend_from_1_to_N (Utilities::string_to_double(Utilities::split_string_list(prm.get("Alpha"))),
+                                                                         n_fields,                                                                                                                      "Alpha");
+        beta = Utilities::possibly_extend_from_1_to_N (Utilities::string_to_double(Utilities::split_string_list(prm.get("Beta"))),
+                                                                         n_fields,                                                                                                                      "Beta");	
+	 }
         prm.leave_subsection();
       }
       prm.leave_subsection();
@@ -966,7 +1044,7 @@ namespace aspect
                                    "may in fact decrease if the orientation of the deformation field switches "
                                    "through time. Consequently, the ideal solution is track the finite strain "
                                    "invariant (single compositional) field within the material and track "
-                                   "the full finite strain tensor through particles."
+                                   "the full finite strain tensor through tracers."
                                    ""
                                    "\n\n"
                                    "Viscous stress may also be limited by a non-linear stress limiter "
