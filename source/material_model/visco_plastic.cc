@@ -267,6 +267,11 @@ namespace aspect
               }
             }
 
+          AssertThrow( !std::isnan(viscosity_pre_yield), 
+                       ExcMessage("viscosity_pre_yeild is a NaN.") );
+          AssertThrow( !std::isinf(viscosity_pre_yield), 
+                       ExcMessage("viscosity_pre_yeild is a Inf.") );
+          
           // Calculate viscous stress
           double viscous_stress = 2. * viscosity_pre_yield * edot_ii;
 
@@ -320,6 +325,10 @@ namespace aspect
               viscosity_drucker_prager = viscosity_pre_yield;
             }
 
+          AssertThrow( !std::isnan(viscosity_drucker_prager), 
+                       ExcMessage("viscosity_drucker_prager is a NaN.") );
+          AssertThrow( !std::isinf(viscosity_drucker_prager), 
+                       ExcMessage("viscosity_drucker_prager is a Inf.") );
 
           // Stress limiter rheology
           double viscosity_limiter;
@@ -347,6 +356,11 @@ namespace aspect
                 break;
               }
             }
+
+          AssertThrow( !std::isnan(viscosity_yield), 
+                       ExcMessage("viscosity_yield is a NaN.") );
+          AssertThrow( !std::isinf(viscosity_yield), 
+                       ExcMessage("viscosity_yield is a Inf.") );
 
           // Limit the viscosity with specified minimum and maximum bounds
           composition_viscosities[j] = std::min(std::max(viscosity_yield, min_visc), max_visc);
