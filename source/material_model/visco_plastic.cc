@@ -201,16 +201,18 @@ namespace aspect
           // Note: values of A, d, m, E, V and n are distinct for diffusion & dislocation creep
 
           // Diffusion creep: viscosity is grain size dependent (m!=0) and strain-rate independent (n=1)
-          double viscosity_diffusion = 0.5 * std::pow(prefactors_diffusion[j],-1/stress_exponents_diffusion[j]) *
-                                       std::exp((activation_energies_diffusion[j] + pressure*activation_volumes_diffusion[j])/
-                                                (constants::gas_constant*temperature*stress_exponents_diffusion[j])) *
-                                       std::pow(grain_size, grain_size_exponents_diffusion[j]);
+          double viscosity_diffusion = 1.0; 
+                                       //0.5 * std::pow(prefactors_diffusion[j],-1/stress_exponents_diffusion[j]) *
+                                       //std::exp((activation_energies_diffusion[j] + pressure*activation_volumes_diffusion[j])/
+                                       //         (constants::gas_constant*temperature*stress_exponents_diffusion[j])) *
+                                       //std::pow(grain_size, grain_size_exponents_diffusion[j]);
 
           // For dislocation creep, viscosity is grain size independent (m=0) and strain-rate dependent (n>1)
-          double viscosity_dislocation = 0.5 * std::pow(prefactors_dislocation[j],-1/stress_exponents_dislocation[j]) *
-                                         std::exp((activation_energies_dislocation[j] + pressure*activation_volumes_dislocation[j])/
-                                                  (constants::gas_constant*temperature*stress_exponents_dislocation[j])) *
-                                         std::pow(edot_ii,((1. - stress_exponents_dislocation[j])/stress_exponents_dislocation[j]));
+          double viscosity_dislocation = 1.0;
+                                         //0.5 * std::pow(prefactors_dislocation[j],-1/stress_exponents_dislocation[j]) *
+                                         //std::exp((activation_energies_dislocation[j] + pressure*activation_volumes_dislocation[j])/
+                                         //         (constants::gas_constant*temperature*stress_exponents_dislocation[j])) *
+                                         //std::pow(edot_ii,((1. - stress_exponents_dislocation[j])/stress_exponents_dislocation[j]));
          
 	  // For lava.
           const double ref_visc = reference_viscosity();
