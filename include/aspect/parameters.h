@@ -68,6 +68,7 @@ namespace aspect
         iterated_IMPES,
         iterated_Stokes,
         Stokes_only,
+        Newton_Stokes,
         Advection_only
       };
     };
@@ -307,6 +308,8 @@ namespace aspect
     double                         start_time;
     double                         CFL_number;
     double                         maximum_time_step;
+    double                         reaction_time_step;
+    unsigned int                   reaction_steps_per_advection_step;
     bool                           use_artificial_viscosity_smoothing;
     bool                           use_conduction_timestep;
     bool                           convert_to_years;
@@ -328,14 +331,12 @@ namespace aspect
     unsigned int                   n_expensive_stokes_solver_steps;
     double                         temperature_solver_tolerance;
     double                         composition_solver_tolerance;
+    bool                           use_operator_splitting;
     unsigned int                   max_pre_newton_nonlinear_iterations;
     unsigned int                   max_newton_line_search_iterations;
-    double                         switch_initial_newton_residual;
-    double                         minimum_linear_stokes_solver_tolerance;
+    bool                           use_newton_residual_scaling_method;
+    double                         maximum_linear_stokes_solver_tolerance;
 
-    // possibly find a better place for these variables
-    double                         newton_theta;
-    double                         newton_residual;
     /**
      * @}
      */

@@ -38,7 +38,10 @@ namespace aspect
     PropertyPool::Handle
     PropertyPool::allocate_properties_array ()
     {
-      return new double[n_properties];
+      if (n_properties > 0)
+        return new double[n_properties];
+
+      return invalid_handle;
     }
 
 
@@ -62,6 +65,12 @@ namespace aspect
     PropertyPool::reserve(const std::size_t size)
     {
       (void)size;
+    }
+
+    unsigned int
+    PropertyPool::n_properties_per_slot() const
+    {
+      return n_properties;
     }
   }
 }

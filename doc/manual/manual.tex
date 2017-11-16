@@ -329,7 +329,7 @@ Please also cite the User's Manual:
 
 
 Updated citation information can also be found on the \aspect{}
-website at \url{https://aspect.dealii.org/}.
+website at \url{https://aspect.geodynamics.org/publications.html}.
 
 
 
@@ -2640,6 +2640,11 @@ that will be listed when starting the program. It can be flexibly configured to 
 non-default compilers or libraries (e.g. Intel's MKL instead of LAPACK) by changing entries
 in the configuration file \texttt{candi.cfg}, or by providing platform specific installation files.
 
+In case you encounter problems during the installation, please consult our wiki
+(\url{https://github.com/geodynamics/aspect/wiki}) for frequently asked
+questions and special instructions for MacOS users, before posting your
+questions on the mailing list.
+
 \subsubsection{System prerequisites}
 
 \texttt{candi} will show system specific instructions on startup, but its prerequisites
@@ -2770,169 +2775,6 @@ which assumes that you have the \texttt{doxygen} documentation generation tool
 installed. Most Linux distributions have packages for \texttt{doxygen}. The
 result will be the file \url{doc/doxygen/index.html} that is the starting
 point for exploring the documentation.
-
-\subsubsection{Compiling a static \aspect{} executable}
-\aspect{} defaults to a dynamically linked executable, which saves disk space and build time. In some circumstances however, it is preferred to generate a statically linked executable that incorporates all used libraries. This need may arise on large clusters on which libraries and loaded modules/variables on login nodes may be different from the ones available on compute nodes. The general build procedure in such a case equals the above explained instructions with the following differences:
-\begin{enumerate}
-\item \textit{Trilinos}: Add the following lines to your cmake call:
-\begin{verbatim}
- -DBUILD_SHARED_LIBS=OFF
- -DTPL_FIND_SHARED_LIBS=OFF
-\end{verbatim}
-\item \textit{\pfrst{}:} Change items "--enable-shared" to "--enable-static" in p4est-setup.sh lines 83 and 97.
-\item \textit{\dealii{}:} Add the following lines to your call to cmake:
-\begin{verbatim}
- -DDEAL_II_STATIC_EXECUTABLE=ON
-\end{verbatim}
-\item \textit{\aspect{}:} If everything above is set up correctly, there is no need for any configuration change to \aspect{}'s build procedure. You should see the following cmake output from \aspect{}:
-\begin{verbatim}
--- Creating a statically linked executable
--- Disabling dynamic loading of plugins from the input file
-\end{verbatim}
-\end{enumerate}
-
-The here mentioned build was tested on a Cray XC30 cluster, which was set up for default static compiling and linking. On machines that default to dynamic linking additional compiler and/or linker flags may be required (e.g. "-fPIC" / "--static"). In case of questions send an email to the mailing list.
-
-\subsubsection{Installing and running \aspect{} on Mac OS X}
-OS X has some eccentricities which can complicate installation of \aspect{}. Currently the easiest and most reliable way to run \aspect{} under Mac OS X Mavericks (10.9), Yosemite (10.10) and El Capitan (10.11) is to install and run the binary package for \dealii{}. The step-by-step process is described in detail, with screenshots, here: \url{https://wiki.geodynamics.org/_media/software:aspect:aspect_yosemite_20150529.pdf}
-
-\begin{enumerate}
-\item Install Xcode from the app store. You might need to install the command line tools. Open a terminal and make sure ``clang'' does not report ``command not found''. You might need to run
-\begin{verbatim}
-  xcode-select --install
-\end{verbatim}
-to install the tools.
-
-\item Install Cmake.
-
-CMake is a cross-platform, open-source build system that can be downloaded from \url{http://www.cmake.org}.  After installation of CMake.app, the terminal command for cmake will be
-\begin{verbatim}
-  /Applications/CMake.app/Contents/bin/cmake
-\end{verbatim}
-
-\item Download and install the parallel \dealii{}. This is the binary package for Mac OS .dmg file.
-\begin{verbatim}
-  open  https://github.com/dealii/dealii/releases/download/v8.4.1/dealii-8.4.1.dmg
-\end{verbatim}
-
-Open the downloaded disk image, and drag \dealii{}.app into the Applications folder.
- To start the \dealii{} app, double click the icon in the Applications folder or use the open command:
-\begin{verbatim}
-  open /Applications/deal.II.app
-\end{verbatim}
-\dealii{} app opens a terminal window and displays a \dealii{} message.   \dealii{}.app will install all required libraries for \aspect{} (p4est, parMeTiS, and Trilinos) and will include the environment variables needed to use these libraries.
-
-To ensure the correct compilers are picked up when configuring \aspect{}, add the following lines to your \texttt{\textasciitilde/.profile} or \texttt{\textasciitilde/.bash\_profile}:
-
-\begin{verbatim}
-  export OMPI_CXX=clang++
-  export OMPI_CC=clang
-\end{verbatim}
-
-\item Download  the  \aspect{} source from the git repository.
-
-\begin{verbatim}
-  cd $HOME/src
-  git clone https://github.com/geodynamics/aspect.git
-\end{verbatim}
-
-If you wish to use Xcode as your IDE it is recommended to skip to step 7 below. Otherwise, proceed with steps 5 and 6 below.
-
-\item Build \aspect{}
-
-Note: if you are not using Xcode (see step 7 below), you {\bf MUST} \underline{build} and \underline{run} \aspect{} in the terminal window started by \dealii{}, rather than in the Terminal app.
-
-\begin{enumerate}
-\item Go to the  directory where you wish to install \aspect{}  and run the following commands:
-
-{\footnotesize
-\begin{verbatim}
-  cmake .
-\end{verbatim}}
-
-This should display something like:
-
-{\footnotesize
-\begin{verbatim}
-  Project aspect set up with  deal.II-8.4.1  found at /Applications/deal.II.app/Contents/Resources
-\end{verbatim}}
-
-\item Run make:
-
-{\footnotesize
-\begin{verbatim}
-  bash-3.2$ make
-  Scanning dependencies of target aspect
-  [  0%] Building CXX object CMakeFiles/aspect.dir/source/adiabatic_conditions/initial_profile.cc.o
-  [  0%] Building CXX object CMakeFiles/aspect.dir/source/adiabatic_conditions/interface.cc.o
-  ...
-  Linking CXX executable aspect
-  [100%] Built target aspect
-  bash-3.2$ ls -l aspect
-  -rwxr-xr-x  1 <name>  staff  19131292 May  7 15:02 aspect
-\end{verbatim}
-}
-There may be  warnings from the compiler, but if the \aspect{} target is created then it was successful.
-
-\item By default,  \aspect{}  compiles the debug version of the code.
-To compile the optimized version:
-{\footnotesize\begin{verbatim}
-  make release 
-\end{verbatim}}
-
-\item Run make test
-
-{\footnotesize
-\begin{verbatim}
-  make test
-\end{verbatim}}
-
-
-\end {enumerate}
-
-
-
-\item Run \aspect{}.
-
-A reminder: you {\bf must} run  \aspect{}  on the terminal window which is opened by \dealii{}.app.
-
-To start \aspect{} using MPI for parallelization, from the directory where you installed \aspect{}:
-\begin{verbatim}
-  mpirun -np <# of processes> ./aspect <parameter file>
-\end{verbatim}
-
-To check quickly whether you are running  \aspect{} on the  \dealii{}.app terminal, check the location of the \verb|mpirun| command:
-\begin{verbatim}
-  bash-3.2$ which mpirun
-  /Applications/deal.II.app/Contents/Resources/opt/openmpi-1.6.5/bin/mpirun
-\end{verbatim}
-
-\item Build \aspect{} as an Xcode project.
-
-After completing step 4 above, do the following:
-\begin{enumerate}
-\item Go to the directory where you wish to install \aspect{} and run the following command:
-
-\begin{verbatim}
-  cmake -G Xcode .
-\end{verbatim}
-
-Now open the resulting \texttt{aspect.xcodeproj} in Xcode.
-
-\item Open Product\textgreater Scheme\textgreater Manage Schemes, then select ``aspect'' and click ``Edit''. Go to Run\textgreater Arguments, and under "Arguments Passed On Launch" add the filepath to the desired parameter file. Click "Close" then select Product\textgreater Run to run \aspect{} with this parameter file.
-
-\item If you want to run in parallel in Xcode, the easiest way is to create a new scheme. Open Product\textgreater Scheme\textgreater Manage Schemes, select ``aspect'' then select the gear icon, then ``Duplicate scheme''. Rename the new scheme to ``aspect parallel''. Go to Run\textgreater Info, and in Executable choose ``Other...''. Navigate to 
-\begin{verbatim}
-  /Applications/deal.II.app/Contents/Resources/opt/openmpi-1.10.2/bin
-\end{verbatim}
-and select ``orterun'', then click ``Choose''.
-
-\item Now go to the Arguments tab, and add 3 arguments: first, add \texttt{-np4} (for 4 processors -- you may use however many your machine has). Then add a path to your aspect executable -- this should be within your aspect folder, or the subfolders Debug or Release. Finally, ensure you have a path to your parameter file as above. Ensure these are in the correct order, or reorder them if necessary. Click ``Close'' then select Product\textgreater Run to run \aspect{} in parallel with this parameter file.
-\end{enumerate}
-
-
-
-\end{enumerate}
 
 
 %%%%%%%%%%%%%%%%%%%%%%
@@ -3850,7 +3692,7 @@ requires us to solve a linear system of the form $Ax=b$ which we do through
 iterative solvers, i.e., we try to find a sequence of approximations $x^{(k)}$
 where $x^{(k)}\rightarrow x=A^{-1}b$. This iteration is terminated at iteration
 $k$ if the approximation is ``close enough'' to the exact solution. The solvers
-we use this determine this by testing after every iteration whether the
+we use determine this by testing after every iteration whether the
 \textit{residual}, $r^{(k)}=A(x-x^{(k)})=b-Ax^{(k)}$, satisfies
 $\|r^{(k)}\|\le\varepsilon\|r^{(0)}\|$ where $\varepsilon$ is called the
 (relative) \textit{tolerance}.
@@ -4370,7 +4212,7 @@ temperature. This leads to the following set of equations:
   & \qquad
   & \textrm{in $\Omega$},
   \\
-  \rho_0 (1-\alpha (T-T_0)) C_p \left(\frac{\partial T}{\partial t} + \mathbf
+  \rho_0 C_p \left(\frac{\partial T}{\partial t} + \mathbf
   u\cdot\nabla T\right) - \nabla\cdot k\nabla T
   &=
   0
@@ -4387,24 +4229,18 @@ setting coefficients in the following way:
   \rho_0=C_p=\kappa=\alpha=\eta=h=\Delta T=1, \qquad T_0=0, \qquad g=Ra,
 \end{align*}
 where $\mathbf g=-g \mathbf e_z$ is the gravity vector in negative
-$z$-direction. While this would be a valid description of the problem, it is not
-what one typically finds in the literature because there the density in the
-temperature equation is chosen as reference density $\rho_0$ rather than the 
-full density $\rho(1-\alpha(T-T_0))$
-as used by \aspect{}. However, we can mimic this by choosing a very small value
-for $\alpha$ -- small enough to ensure that for all reasonable temperatures,
-the density used here is equal to $\rho_0$ for all practical purposes --, and
-instead making $g$ correspondingly larger.
-Consequently, in this cookbook we will use the following set of parameters:
-\begin{align*}
-  \rho_0=C_p=\kappa=\eta=h=\Delta T=1, \qquad T_0=0, \qquad \alpha=10^{-10}, \qquad
-  g=10^{10} Ra.
-\end{align*}
+$z$-direction. 
 We will see all of these values again in the input file discussed below.
+One point to note is that for the Boussinesq approximation, as described above, the density 
+in the temperature equation is chosen as the reference density $\rho_0$ rather than the 
+full density $\rho(1-\alpha(T-T_0))$ as we see it in the buoyancy term on the right hand 
+side of the momentum equation. As \aspect{} is able to handle different approximations 
+of the equations (see Section \ref{sec:approximate-equations}), we also have to 
+specify in the input file that we want to use the Boussinesq approximation.
 The problem is completed by stating the velocity boundary conditions: tangential
 flow along all four of the boundaries of the box.
 
-This situation describes a well-known benchmark problems for which a lot is
+This situation describes a well-known benchmark problem for which a lot is
 known and against which we can compare our results. For example, the following
 is well understood:
 \begin{itemize}
@@ -4452,35 +4288,37 @@ Number of degrees of freedom: 3,556 (2,178+289+1,089)
 *** Timestep 0:  t=0 seconds
    Solving temperature system... 0 iterations.
    Rebuilding Stokes preconditioner...
-   Solving Stokes system... 30+5 iterations.
+   Solving Stokes system... 31+0 iterations.
 
 [... ...]
 
-*** Timestep 1077:  t=0.499901 seconds
-   Solving temperature system... 9 iterations.
+*** Timestep 1085:  t=0.5 seconds
+   Solving temperature system... 0 iterations.
    Solving Stokes system... 5 iterations.
 
    Postprocessing:
-     RMS, max velocity:                  43.1 m/s, 69.8 m/s
+     RMS, max velocity:                  43.5 m/s, 70.3 m/s
      Temperature min/avg/max:            0 K, 0.5 K, 1 K
-     Heat fluxes through boundary parts: 0.02056 W, -0.02061 W, -4.931 W, 4.931 W
+     Heat fluxes through boundary parts: 0.01977 W, -0.01977 W, -4.787 W, 4.787 W
 
+Termination requested by criterion: end time
 
 
 +---------------------------------------------+------------+------------+
-| Total wallclock time elapsed since start    |       454s |            |
+| Total wallclock time elapsed since start    |      66.5s |            |
 |                                             |            |            |
 | Section                         | no. calls |  wall time | % of total |
 +---------------------------------+-----------+------------+------------+
-| Assemble Stokes system          |      1078 |      19.2s |       4.2% |
-| Assemble temperature system     |      1078 |       329s |        72% |
-| Build Stokes preconditioner     |         1 |    0.0995s |     0.022% |
-| Build temperature preconditioner|      1078 |      5.84s |       1.3% |
-| Solve Stokes system             |      1078 |      15.6s |       3.4% |
-| Solve temperature system        |      1078 |      3.72s |      0.82% |
-| Initialization                  |         2 |    0.0474s |      0.01% |
-| Postprocessing                  |      1078 |      61.9s |        14% |
-| Setup dof systems               |         1 |     0.221s |     0.049% |
+| Assemble Stokes system          |      1086 |      8.63s |        13% |
+| Assemble temperature system     |      1086 |        32s |        48% |
+| Build Stokes preconditioner     |         1 |    0.0225s |         0% |
+| Build temperature preconditioner|      1086 |      1.52s |       2.3% |
+| Solve Stokes system             |      1086 |       7.7s |        12% |
+| Solve temperature system        |      1086 |     0.729s |       1.1% |
+| Initialization                  |         1 |    0.0316s |         0% |
+| Postprocessing                  |      1086 |      7.76s |        12% |
+| Setup dof systems               |         1 |    0.0104s |         0% |
+| Setup initial conditions        |         1 |   0.00621s |         0% |
 +---------------------------------+-----------+------------+------------+
 \end{lstlisting}
 
@@ -4492,23 +4330,24 @@ time steps and at the end of the program:
 
 \begin{lstlisting}[frame=single,language=ksh]
 +---------------------------------------------+------------+------------+
-| Total wallclock time elapsed since start    |      48.3s |            |
+| Total wallclock time elapsed since start    |      25.8s |            |
 |                                             |            |            |
 | Section                         | no. calls |  wall time | % of total |
 +---------------------------------+-----------+------------+------------+
-| Assemble Stokes system          |      1078 |      1.68s |       3.5% |
-| Assemble temperature system     |      1078 |      26.3s |        54% |
-| Build Stokes preconditioner     |         1 |    0.0401s |     0.083% |
-| Build temperature preconditioner|      1078 |      4.87s |        10% |
-| Solve Stokes system             |      1078 |      6.76s |        14% |
-| Solve temperature system        |      1078 |      1.76s |       3.7% |
-| Initialization                  |         2 |    0.0241s |      0.05% |
-| Postprocessing                  |      1078 |      4.99s |        10% |
-| Setup dof systems               |         1 |    0.0394s |     0.082% |
+| Assemble Stokes system          |      1086 |      2.51s |       9.7% |
+| Assemble temperature system     |      1086 |      9.88s |        38% |
+| Build Stokes preconditioner     |         1 |    0.0271s |      0.11% |
+| Build temperature preconditioner|      1086 |      1.58s |       6.1% |
+| Solve Stokes system             |      1086 |      6.38s |        25% |
+| Solve temperature system        |      1086 |     0.542s |       2.1% |
+| Initialization                  |         1 |     0.219s |      0.85% |
+| Postprocessing                  |      1086 |      2.79s |        11% |
+| Setup dof systems               |         1 |      0.23s |      0.89% |
+| Setup initial conditions        |         1 |     0.107s |      0.41% |
 +---------------------------------+-----------+------------+------------+
 \end{lstlisting}
 
-In other words, the program ran about 10 times faster than before. Not all
+In other words, the program ran more than 2 times faster than before. Not all
 operations became faster to the same degree: assembly, for example, is an area
 that traverses a lot of code both in \aspect{} and in \dealii{} and so
 encounters a lot of verification code in debug mode. On the other hand, solving
@@ -4531,7 +4370,8 @@ discussion in Section~\ref{sec:viz} and use the default VTU output format to
 visualize using the Visit program.
 
 In the parameter file we have specified that graphical output should be
-generated every 0.01 time units. Looking through these output files, we find
+generated every 0.01 time units. Looking through these output files (which can
+be found in the folder \texttt{output-convection-box}, as specified in the input file), we find
 that the flow and temperature fields quickly converge to a stationary state.
 Fig.~\ref{fig:convection-box-fields} shows the initial and final states of this
 simulation.
@@ -4559,33 +4399,35 @@ looks like this for the current input file:
 \begin{lstlisting}[frame=single,language=prmfile]
 # 1: Time step number
 # 2: Time (seconds)
-# 3: Number of mesh cells
-# 4: Number of Stokes degrees of freedom
-# 5: Number of temperature degrees of freedom
-# 6: Iterations for temperature solver
-# 7: Iterations for Stokes solver
-# 8: Time step size (seconds)
-# 9: RMS velocity (m/s)
-# 10: Max. velocity (m/s)
-# 11: Minimal temperature (K)
-# 12: Average temperature (K)
-# 13: Maximal temperature (K)
-# 14: Average nondimensional temperature (K)
-# 15: Outward heat flux through boundary with indicator 0 (W)
-# 16: Outward heat flux through boundary with indicator 1 (W)
-# 17: Outward heat flux through boundary with indicator 2 (W)
-# 18: Outward heat flux through boundary with indicator 3 (W)
-# 19: Visualization file name
+# 3: Time step size (seconds)
+# 4: Number of mesh cells
+# 5: Number of Stokes degrees of freedom
+# 6: Number of temperature degrees of freedom
+# 7: Iterations for temperature solver
+# 8: Iterations for Stokes solver
+# 9: Velocity iterations in Stokes preconditioner
+# 10: Schur complement iterations in Stokes preconditioner
+# 11: RMS velocity (m/s)
+# 12: Max. velocity (m/s)
+# 13: Minimal temperature (K)
+# 14: Average temperature (K)
+# 15: Maximal temperature (K)
+# 16: Average nondimensional temperature (K)
+# 17: Outward heat flux through boundary with indicator 0 ("left") (W)
+# 18: Outward heat flux through boundary with indicator 1 ("right") (W)
+# 19: Outward heat flux through boundary with indicator 2 ("bottom") (W)
+# 20: Outward heat flux through boundary with indicator 3 ("top") (W)
+# 21: Visualization file name
 ... lots of numbers arranged in columns ...
 \end{lstlisting}
 
 Fig.~\ref{fig:convection-box-stats} shows the results of visualizing the data
-that can be found in columns 2 (the time) plotted against columns 9 and 10
+that can be found in columns 2 (the time) plotted against columns 11 and 12
 (root mean square and maximal velocities). Plots of this kind can be generated with
 \texttt{Gnuplot} by typing (see Section~\ref{sec:viz-stat} for a more thorough
 discussion):
 \begin{verbatim}
-  plot "output/statistics" using 2:9 with lines
+  plot "output-convection-box/statistics" using 2:11 with lines
 \end{verbatim}
 Fig.~\ref{fig:convection-box-stats} shows clearly that the simulation
 enters a steady state after about $t\approx 0.1$ and then changes very little. This can also be observed using the
@@ -4599,8 +4441,8 @@ $t\approx 0.2$, the fluxes differ by only $5\cdot 10^{-5}$, i.e., by less than
 0.001\% of their magnitude.%
 \footnote{This difference is far smaller than the numerical error in the heat
 flux on the mesh this data is computed on.}
-The flux we get at the last time step, 4.931, is less than 1\% away from the
-value reported in \cite{BBC89} although we compute on a $16\times 16$ mesh and
+The flux we get at the last time step, 4.787, is less than 2\% away from the
+value reported in \cite{BBC89} ($\approx$4.88) although we compute on a $16\times 16$ mesh and
 the values reported by Blankenbach are extrapolated from meshes of size up to
 $72\times 72$. This shows the accuracy that can be obtained using a higher order
 finite element. Secondly, the fluxes through the left and right boundary are not
@@ -4658,10 +4500,10 @@ pattern. On the other hand, for values $Ra<Ra_c\approx 780$, any movement of
 the fluid dies down exponentially and we end up with a situation where the fluid
 doesn't move and heat is transported from the bottom to the top only through
 heat conduction. This can be explained by considering that the Rayleigh number
-in a box of unit extent is defined as $Ra=\frac{g\alpha}{\eta k}$. A small
+in a box of unit extent is defined as $Ra=\frac{\rho_0 g\alpha\Delta T}{\eta k}$. A small
 Rayleigh number means that the viscosity is too large (i.e., the buoyancy given
-by the product of the magnitude of gravity times the thermal expansion
-coefficient is not strong enough to overcome friction forces within the fluid).
+by the product of the magnitude of gravity times the density anomalies caused by temperature
+-- $\rho_0 \alpha \Delta T$ -- is not strong enough to overcome friction forces within the fluid).
 
 On the other hand, if the Rayleigh number is large (i.e., the viscosity is
 small or the buoyancy large) then the fluid develops an unsteady convection
@@ -4708,8 +4550,8 @@ computation with $Ra=10^6$; it is obvious here that the flow no longer settles
 into a steady state but has a periodic behavior. This can also be seen by
 looking at movies of the solution.
 
-To generate these results, remember that we have chosen $\alpha=10^{-10}$ and
-$g=10^{10}Ra$ in our input file. In other words, changing the input file to
+To generate these results, remember that we have chosen 
+$g=Ra$ in our input file. In other words, changing the input file to
 contain the parameter setting
 %
 \lstinputlisting[language=prmfile]{cookbooks/convection-box/gravity.part.prm.out}
@@ -4720,7 +4562,7 @@ will achieve the desired effect of computing with $Ra=10^6$.
 \paragraph{Play time 2: Thinking about finer meshes.}
 In our computations for $Ra=10^4$ we used a $16\times 16$ mesh and obtained a
 value for the heat flux that differed from the generally accepted value from
-Blankenbach \textit{et al.} \cite{BBC89} by less than 1\%. However, it may be
+Blankenbach \textit{et al.} \cite{BBC89} by less than 2\%. However, it may be
 interesting to think about computing even more accurately. This is easily done
 by using a finer mesh, for example. In the parameter file above, we have chosen
 the mesh setting as follows:
@@ -4789,19 +4631,19 @@ indicating that the mesh before this refinement step may already have been fine
 enough to resolve the majority of the dynamics.
 
 In any case, we can compare the heat fluxes we obtain at the end of these
-computations: With a globally four times refined mesh, we get a value of 4.931
-(an error of approximately 1\% against the accepted value from Blankenbach,
-$4.884409\pm 0.00001$). With a globally five times refined mesh we get 4.914 (an
-error of 0.6\%) and with the mesh generated using the procedure above we get
-4.895 with the four digits printed on the screen%
+computations: With a globally four times refined mesh, we get a value of 4.787
+(an error of approximately 2\% against the accepted value from Blankenbach,
+$4.884409\pm 0.00001$). With a globally five times refined mesh we get 4.879, 
+and with a globally six times refined mesh we get 4.89 (an error of almost 0.1\%).
+With the mesh generated using the procedure above we also get
+4.89 with the digits printed on the screen%
 \footnote{The statistics file gives this
-value to more digits: 4.89488768. However, these are clearly more digits than
+value to more digits: 4.89008498. However, these are clearly more digits than
 the result is accurate.}
-(corresponding to an error of 0.2\%). In other words, our
-simple procedure of refining the mesh during the simulation run yields an
-accuracy of three times smaller than using the globally refined approach even
-though the compute time is not much larger than that necessary for the 5 times
-globally refined mesh.
+(also corresponding to an error of almost 0.1\%). In other words, our
+simple procedure of refining the mesh during the simulation run yields the same 
+accuracy as using the mesh that is globally refined in the beginning of the 
+simulation, while needing a much lower compute time.  
 
 
 \paragraph{Play time 3: Changing the finite element in use.}
@@ -4847,48 +4689,53 @@ Number of degrees of freedom: 4,868 (2,178+289+2,401)
 *** Timestep 0:  t=0 seconds
    Solving temperature system... 0 iterations.
    Rebuilding Stokes preconditioner...
-   Solving Stokes system... 30+5 iterations.
+   Solving Stokes system... 30+0 iterations.
 
 [... ...]
 
-*** Timestep 1619:  t=0.499807 seconds
-   Solving temperature system... 8 iterations.
-   Solving Stokes system... 5 iterations.
+*** Timestep 1621:  t=0.5 seconds
+   Solving temperature system... 0 iterations.
+   Solving Stokes system... 1+0 iterations.
 
    Postprocessing:
      RMS, max velocity:                  42.9 m/s, 69.5 m/s
      Temperature min/avg/max:            0 K, 0.5 K, 1 K
-     Heat fluxes through boundary parts: -0.004622 W, 0.004624 W, -4.878 W, 4.878 W
+     Heat fluxes through boundary parts: -0.004602 W, 0.004602 W, -4.849 W, 4.849 W
+
+Termination requested by criterion: end time
 
 
 +---------------------------------------------+------------+------------+
-| Total wallclock time elapsed since start    |       127s |            |
+| Total wallclock time elapsed since start    |      53.6s |            |
 |                                             |            |            |
 | Section                         | no. calls |  wall time | % of total |
 +---------------------------------+-----------+------------+------------+
-| Assemble Stokes system          |      1620 |      3.03s |       2.4% |
-| Assemble temperature system     |      1620 |      75.7s |        60% |
-| Build Stokes preconditioner     |         1 |    0.0422s |     0.033% |
-| Build temperature preconditioner|      1620 |      21.7s |        17% |
-| Solve Stokes system             |      1620 |      10.3s |       8.1% |
-| Solve temperature system        |      1620 |       4.9s |       3.8% |
-| Initialization                  |         2 |    0.0246s |     0.019% |
-| Postprocessing                  |      1620 |      8.05s |       6.3% |
-| Setup dof systems               |         1 |    0.0438s |     0.034% |
+| Assemble Stokes system          |      1622 |      4.04s |       7.5% |
+| Assemble temperature system     |      1622 |      24.4s |        46% |
+| Build Stokes preconditioner     |         1 |    0.0121s |         0% |
+| Build temperature preconditioner|      1622 |      8.05s |        15% |
+| Solve Stokes system             |      1622 |      8.92s |        17% |
+| Solve temperature system        |      1622 |      1.67s |       3.1% |
+| Initialization                  |         1 |    0.0327s |         0% |
+| Postprocessing                  |      1622 |      4.27s |         8% |
+| Setup dof systems               |         1 |   0.00418s |         0% |
+| Setup initial conditions        |         1 |   0.00236s |         0% |
 +---------------------------------+-----------+------------+------------+
+
 \end{lstlisting}
 
-Note here that the heat flux through the top and bottom boundaries is now
-computed as 4.878, an error of 0.13\%. This is 4 times more accurate than the
+The heat flux through the top and bottom boundaries is now computed as 4.878.
+Using the five times globally refined mesh, it is 4.8837 (an error of 0.015\%). 
+This is 6 times more accurate than the 
 once more globally refined mesh with the original quadratic elements, at a cost
 significantly smaller. Furthermore, we can of course combine this with the mesh
 that is gradually refined as simulation time progresses, and we then get a heat
-flux that is equal to 4.8843, only 0.002\% away from the accepted value!
+flux that is equal to 4.884446, also only 0.01\% away from the accepted value!
 
 As a final remark, to test our hypothesis that it was indeed the temperature
 polynomial degree that was the limiting factor, we can increase the Stokes
 polynomial degree to 3 while leaving the temperature polynomial degree at 2. A
-quick computation shows that in that case we get a heat flux of 4.931 -- exactly
+quick computation shows that in that case we get a heat flux of 4.747 -- almost 
 the same value as we got initially with the lower order Stokes element. In other
 words, at least for this testcase, it really was the temperature variable that
 limits the accuracy.
@@ -8079,6 +7926,49 @@ Both trends are shown in Figure~\ref{fig:inner-core-trends} and can be compared 
     \label{fig:inner-core-trends}
 \end{figure}
 
+\subsubsection{Melt migration in a 2D mantle convection model}
+
+\textit{This section was contributed by Juliane Dannberg and is based on a section in \cite{dannberg_melt} by Juliane Dannberg and Timo Heister.}
+
+The following cookbook will explain how to use \aspect{}'s implementation of coupled magma/mantle dynamics 
+(see Section~\ref{sec:melt_transport}) to set up a model of mantle convection that also includes melting 
+and freezing of mantle rock, and the transport of melt according to the two-phase flow equations. 
+The model setup is described in detail in \cite{dannberg_melt}, which can be found \href{https://doi.org/10.1093/gji/ggw329}{here},  
+and in the following we will go over a slightly simplified version in lower resolution. 
+We will start by looking at a global mantle convection without melt migration, and will 
+then discuss how the input file has to be modified in order to add melt transport. A movie that compares 
+the evolution of the temperature field and the amount of melt present in both models in higher resolution can be found 
+\href{http://youtu.be/Kwyp4Jvx6MU}{online}. 
+
+The model setup is a 2D box with dimensions of $2900 \times 8700$\,km, and it is heated from the bottom and 
+cooled from the top. A full description can be found in Section~4.7 ``Influence of melt migration on a global-scale 
+convection model'' in \cite{dannberg_melt}.
+In the first model we will look at, melting and freezing is only included passively: We use the \texttt{melt fraction} visualization postprocessor to compute how much melt is present for a given temperature and pressure at every given point in time and space in our model, but the presence of melt does not influence material properties like density or viscosity, and melt does not move relative to the solid. This also means that because melt is not extracted, the bulk composition of the material always stays the same, and melt only freezes again once advection or conduction causes the temperature of the solid rock to be below the solidus. 
+The following input file (which can be found in \url{cookbooks/global_no_melt.prm}) contains a detailed description of the 
+different options required to set up such a model:
+
+\lstinputlisting[language=prmfile]{cookbooks/global_melt/global_no_melt.prm}
+
+When we look at visualization output of this model, we can see that over time, first upwellings, and then downwellings start to form. Both are more or less stable over time, and only change their positions slowly. As melt does not move relative to the solid, broad stable zones of melting with melt fraction of 10\% or more form in areas where material is upwelling. 
+
+In the second model, melt is an active component of the model. Temperature, pressure and composition control how much of the rock melts, and as soon as that happens, melt can migrate relative to the solid rock. As material only melts partially, that means that the composition of the rock changes when it melts and melt is extracted, and we track this change in composition using a compositional field with the name \texttt{peridotite}. Positive values mark depletion (the composition of the residual host rock as more and more melt is extracted), and negative values mark enrichment (the composition of generated melt, or regions where melt freezes again). Both the fraction of melt (tracked by the compositional field with the name \texttt{porosity}) and the changes in composition influence the material properties such as density and viscosity. Moreover, there are additional material properties that describe how easily melt can move through the host rock, such as the \texttt{permeability}, or properties of the melt itself, such as the \texttt{fluid viscosity}. 
+The following input file (a complete version of which can be found in \url{cookbooks/global_melt.prm}) details the changes we have to make from the first model to set up a model with melt migration:
+
+\lstinputlisting[language=prmfile]{cookbooks/global_melt/global_melt.prm}
+
+In the first few tens of millions of years, this models evolves similarly to the model without melt migration. Upwellings rise in the same locations, and regions where material starts to melt are similar. However, once melt is formed, the model evolutions start to deviate. In the model with melt migration, melt moves upwards from the region where it is generated much faster than the flow of solid material, so that it reaches cold regions -- where it freezes again -- in a shorter amount of time. Because of that, the overall amount of melt is smaller in this model at any given point in time. In addition, enriched material, present in places where melt has crystallized, has a higher density than average or depleted mantle material. This means that in regions above stable upwellings, instabilities of dense, enriched material start to form, which leads to small-scale downwellings. Hence, both areas where material is partially molten and the location of the upwellings themselves have a much shorter wavelength and change much faster over time in comparison to the model without melt migration.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.9\textwidth]{cookbooks/global_melt/model_evolution.pdf}
+    \caption{Evolution of the model without (left) and with (right) melt migration.}
+    \label{fig:global-melt}
+\end{figure}
+
+Figure~\ref{fig:global-melt} shows the time evolution of both models. 
+A more complete comparison of the two models can be found in Section~4.7 ``Influence of melt migration on a global-scale 
+convection model'' in \cite{dannberg_melt}.
+
 \subsection{Benchmarks}
 \label{sec:cookbooks-benchmarks}
 
@@ -9704,6 +9594,104 @@ We apply the negative phase speed of the solitary wave as a boundary condition f
 
 And extensive discussion of the results and convergence behavior can be found in \cite{dannberg_melt}.
 
+\subsubsection{Benchmarks for operator splitting}
+\label{sec:benchmark-operator_splitting}
+
+\textit{This section was contributed by Juliane Dannberg.}
+
+Models of mantle convection and lithosphere dynamics often also contain reactions between materials with different chemical compositions, or processes that can be described as reactions. 
+The most common example is mantle melting: When mantle temperatures exceed the solidus, rocks start to melt. As this is only partial melting, and rocks are a mixture of different minerals, which all contain different chemical components, melting is not only a phase transition, but also leads to reactions between solid and molten rock. Some components are more compatible with the mineral structure, and preferentially stay in the solid rock, other components will mainly move into the mantle melt. This means that the composition of both solid and melt change over time depending on the melt fraction. 
+
+Usually, it is assumed that these reactions are much faster than convection in the mantle. In other words, these reactions are so fast that melt is assumed to be always in equilibrium with the surrounding solid rock. In some cases, the formation of new oceanic crust, which is also caused by partial melting, is approximated by a conversion from an average, peridotitic mantle composition to mid-ocean ridge basalt, forming the crust, and harzburgitic lithosphere, once material reaches a given depth. This process can also be considered as a reaction between different compositional fields. 
+
+This can cause accuracy problems in geodynamic simulations: The way the equations are formulated (see Equations~\ref{eq:stokes-1}--\ref{eq:compositional}), ideally we would need to know reaction rates (the $q_i$) between the different components instead of the equilibrium value (which would then have to be compared with some sort of ``old solution'' of the compositional fields). Sometimes we also may not know the equilibrium, and would only be able to find it iteratively, starting from the current composition. In addition, the reaction rate for a given compositional field usually depends on the value of the field itself, but can also depend on other compositional fields or the temperature and pressure, and the dependence can be nonlinear.
+
+Hence, \aspect{} has the option to decouple the advection from reactions between compositional fields, using operator splitting.
+
+Instead of solving the coupled equation
+\begin{align}
+  \frac{\partial \mathfrak{c}(t)}{\partial t} + \mathbf u\cdot\nabla \mathfrak{c}(t)
+  &=
+  q(\mathfrak{c}(t)),
+\end{align}
+and directly obtaining the composition value $\mathfrak{c}(t^{n+1})$ for the time step $n+1$ from the value $\mathfrak{c}(t^{n})$ from the previous time step $n$, we do a first-order operator split, first solving the advection problem
+\begin{align}
+  \frac{\partial \mathfrak{c}(t)}{\partial t} + \mathbf u\cdot\nabla \mathfrak{c}(t)
+  &=
+  0,
+  &
+  \text{obtaining } \Delta \mathfrak{c}_A(t^{n+1}) \text{ from } \mathfrak{c}(t^{n}),
+\end{align}
+using the advection time step $\Delta t_A = t^{n+1} - t^{n}$.
+Then we solve the reactions as a series of coupled ordinary differential equations 
+\begin{align}
+  \frac{\partial \Delta \mathfrak{c}_R(t)}{\partial t} 
+  &=
+  q(\mathfrak{c}(t^n))+\Delta \mathfrak{c}_A(t^{n+1})+\Delta \mathfrak{c}_R(t),
+  &
+  \text{obtaining } \Delta \mathfrak{c}_R(t^{n+1}) \text{ from } \mathfrak{c}(t^n)+\Delta \mathfrak{c}_A(t^{n+1}).
+\end{align}
+This can be done in several iterations, choosing a different, smaller time step size $\Delta t_R \leq \Delta t_A$ for the time discretization. 
+The updated value of the compositional field after the overall (advection + reaction) time step is then obtained as
+\begin{align}
+  \mathfrak{c}(t^{n+1}) 
+  &=
+  \mathfrak{c}(t^{n}) + \Delta \mathfrak{c}_A(t^{n+1})+\Delta \mathfrak{c}_R(t^{n+1}).
+\end{align}
+
+This is very useful if the time scales of reactions are different from the time scales of convection. 
+The same scheme can also be used for the temperature: If we want to model latent heat of melting, the temperature evolution is controlled by the melting rate, and hence the temperature changes on the same time scale as the reactions. 
+
+We here illustrate the way this operator splitting works using the simple example of exponential decay in a stationary advection field. We will start with a model that has a constant initial temperature and composition and no advection. The reactions for exponential decay 
+\begin{align}
+  \mathfrak{c}(t) 
+  &=
+  \mathfrak{c}_0 e^{\lambda t} \text{ with } \lambda = - \log(2)/t_{1/2}, 
+\end{align}
+where $\mathfrak{c}_0$ is the initial composition and $t_{1/2}$ is the half life, are implemented in a shared library
+(\url{benchmarks/operator_splitting/exponential_decay/exponential_decay.cc}). 
+As we split the time-stepping of advection and reactions, there are now two different time steps in the model:
+We control the advection time step using the `Maximum time step' parameter (as the velocity is essentially 0, 
+we can not use the CFL number), and we set the reaction time step using the `Reaction time step' parameter. 
+\lstinputlisting[language=prmfile]{cookbooks/benchmarks/operator_splitting/exponential_decay.part.1.prm.out}
+To illustrate convergence, we will vary both parameters in different model runs. 
+
+In our example, we choose $\mathfrak{c}_0=1$, and specify this as initial condition using the \texttt{function} plugin for both composition and temperature. We also set $t_{1/2}=10$, which is implemented as a parameter in the \texttt{exponential decay} material model and the \texttt{exponential decay heating} model. 
+\lstinputlisting[language=prmfile]{cookbooks/benchmarks/operator_splitting/exponential_decay.part.2.prm.out}
+The complete parameter file for this setup can be found in \url{benchmarks/operator_splitting/exponential_decay/exponential_decay.base.prm}.
+
+Figure~\ref{fig:exponential-decay} shows the convergence behavior of these models: As there is no advection, the advection time step does not influence the error (blue data points). As we use a first-order operator split, the error is expected to converge linearly with the reaction time step $\Delta t_R$, which is indeed the case (red data points).
+Errors are the same for both composition and temperature, as both fields have identical initial conditions and reactions, and we use the same methods to solve for these variables. 
+\begin{figure}
+  \begin{center}
+    \includegraphics[width=0.65\textwidth]{cookbooks/benchmarks/operator_splitting/error_exponential_decay.pdf}
+  \end{center}
+  \caption{\it Error for both compositional field and temperature compared to the analytical solution, varying the time steps of advection (blue data points and and top/blue x axis) and reactions (red data points and and bottom/red x axis), while keeping the other one constant, respectively.}
+  \label{fig:exponential-decay}
+\end{figure}
+
+For the second benchmark case, we want to see the effect of advection on convergence. 
+In order to do this, we choose an initial temperature and composition that depends on x (in this case a sine), a decay rate that linearly depends on z, and we apply a constant velocity in x-direction on all boundaries. Our new analytical solution for the evolution of composition is now
+ \begin{align}
+  \mathfrak{c}(t) 
+  &=
+  \sin (2\pi(x-t v_0)) \, \mathfrak{c}_0 e^{\lambda z t}.
+\end{align}
+$v_0$ is the constant velocity, which we set to 0.01 m/s. 
+The parameter file for this setup can be found in \url{benchmarks/operator_splitting/advection_reaction/advection_reaction.base.prm}. 
+\begin{figure}
+  \begin{center}
+    \includegraphics[width=0.48\textwidth]{cookbooks/benchmarks/operator_splitting/error_advection_reaction.pdf}
+    \includegraphics[width=0.48\textwidth]{cookbooks/benchmarks/operator_splitting/error_advection_reaction2.pdf}
+  \end{center}
+  \caption{\it Error for both compositional field and temperature compared to the analytical solution, varying the time steps of advection (blue data points and and top/blue x axis) and reactions (red data points and and bottom/red x axis), while keeping the other one constant, respectively.}
+  \label{fig:advection-reaction}
+\end{figure}
+Figure~\ref{fig:advection-reaction} shows the convergence behavior in this second set of models: 
+If we choose the same resolution as in the previous example (left panel), for large advection time steps $\Delta t_A > 0.1$ the error is dominated by advection, and converges with decreasing advection time step size (blue data points). However, for smaller advection time steps, the error stagnates. The data series where the reaction time step varies also shows a stagnating error. The reason for that is probably that our analytical solution is not in the finite element space we chose, and so neither decreasing the advection or the reaction time step will improve the error. 
+If we increase the resolution by a factor of 4 (right panel), we see that that errors converge both with decreasing advection and reaction time steps.  
+
+The results shown here can be reproduced using the bash scripts \texttt{run.sh} in the corresponding benchmark folders. 
 
 \section{Extending and contributing to \aspect}
 \label{sec:extending}
@@ -11830,7 +11818,7 @@ as well. The process of contributing to a new project can be daunting, but we ap
 every contribution and are happy to work with you on improving \aspect{}. To get
 you started we have collected a set of guidelines and advice on how to get involved in the
 community. To avoid duplication we store these guidelines in a separate file \url{CONTRIBUTING.md}
-in the main folder of the repository. Even if something in that file is not clear, this
+in the main folder of the repository, and you can also access them online at \url{https://github.com/geodynamics/aspect/blob/master/CONTRIBUTING.md}. Even if something in that file is not clear, this
 is an opportunity for you to ask your question on the mailing list (see 
 Section~\ref{sec:questions-and-answers}, and let us know that file needs improvement.
 

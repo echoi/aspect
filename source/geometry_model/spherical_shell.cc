@@ -46,7 +46,10 @@ namespace aspect
     SphericalShell<dim>::
     create_coarse_mesh (parallel::distributed::Triangulation<dim> &coarse_grid) const
     {
-      AssertThrow (phi == 360 || phi == 90 || dim!=3, ExcNotImplemented());
+      AssertThrow (phi == 360 || phi == 90 || ((phi == 180) && (dim == 2)),
+                   ExcMessage ("The only opening angles that are allowed for "
+                               "this geometry are 90, 180, and 360 in 2d; "
+                               "and 90 and 360 in 3d."));
 
       if (phi == 360)
         {
@@ -262,6 +265,12 @@ namespace aspect
       return std::min (std::max (R1-position.norm(), 0.), maximal_depth());
     }
 
+    template <int dim>
+    double
+    SphericalShell<dim>::height_above_reference_surface(const Point<dim> &position) const
+    {
+      return position.norm()-outer_radius();
+    }
 
 
     template <int dim>
@@ -365,7 +374,11 @@ namespace aspect
           prm.declare_entry ("Opening angle", "360",
                              Patterns::Double (0, 360),
                              "Opening angle in degrees of the section of the shell "
-                             "that we want to build. Units: degrees.");
+                             "that we want to build. "
+                             "The only opening angles that are allowed for "
+                             "this geometry are 90, 180, and 360 in 2d; "
+                             "and 90 and 360 in 3d. "
+                             "Units: degrees.");
 
           prm.declare_entry ("Cells along circumference", "0",
                              Patterns::Integer (0),

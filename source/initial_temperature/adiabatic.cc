@@ -97,7 +97,7 @@ namespace aspect
                                                  erfc(this->get_geometry_model().depth(position) /
                                                       (2 * sqrt(kappa * age_top)))
                                                  : 0.0;
-      const double bottom_heating_temperature = age_bottom > 0.0 ?
+      const double bottom_heating_temperature = (age_bottom > 0.0 && this->get_adiabatic_conditions().is_initialized()) ?
                                                 (T_bottom - adiabatic_bottom_temperature + subadiabaticity)
                                                 * erfc((this->get_geometry_model().maximal_depth()
                                                         - this->get_geometry_model().depth(position)) /
@@ -180,7 +180,7 @@ namespace aspect
             }
           else
             AssertThrow (false,
-                         ExcMessage ("Not a valid geometry model for the initial conditions model"
+                         ExcMessage ("Not a valid geometry model for the initial temperature model"
                                      "adiabatic."));
         }
 
@@ -309,7 +309,7 @@ namespace aspect
               catch (...)
                 {
                   std::cerr << "ERROR: FunctionParser failed to parse\n"
-                            << "\t'Initial conditions.Adiabatic.Function'\n"
+                            << "\t'Initial temperature model.Adiabatic.Function'\n"
                             << "with expression\n"
                             << "\t'" << prm.get("Function expression") << "'"
                             << "More information about the cause of the parse error \n"

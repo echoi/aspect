@@ -64,6 +64,7 @@ namespace aspect
           local_dof_indices (finite_element.dofs_per_cell),
           dof_component_indices(stokes_dofs_per_cell),
           grads_phi_u (stokes_dofs_per_cell, numbers::signaling_nan<SymmetricTensor<2,dim> >()),
+          div_phi_u (stokes_dofs_per_cell, numbers::signaling_nan<double>()),
           phi_p (stokes_dofs_per_cell, numbers::signaling_nan<double>()),
           phi_p_c (add_compaction_pressure ? stokes_dofs_per_cell : 0, numbers::signaling_nan<double>()),
           grad_phi_p (add_compaction_pressure ? stokes_dofs_per_cell : 0, numbers::signaling_nan<Tensor<1,dim> >()),
@@ -84,6 +85,7 @@ namespace aspect
           local_dof_indices (scratch.local_dof_indices),
           dof_component_indices( scratch.dof_component_indices),
           grads_phi_u (scratch.grads_phi_u),
+          div_phi_u (scratch.div_phi_u),
           phi_p (scratch.phi_p),
           phi_p_c (scratch.phi_p_c),
           grad_phi_p(scratch.grad_phi_p),
@@ -127,8 +129,8 @@ namespace aspect
 
           phi_u (stokes_dofs_per_cell, numbers::signaling_nan<Tensor<1,dim> >()),
           grads_phi_u (stokes_dofs_per_cell, numbers::signaling_nan<SymmetricTensor<2,dim> >()),
-          div_phi_u (stokes_dofs_per_cell, numbers::signaling_nan<double>()),
           velocity_values (quadrature.size(), numbers::signaling_nan<Tensor<1,dim> >()),
+          velocity_divergence (quadrature.size(), numbers::signaling_nan<double>()),
           face_material_model_inputs(face_quadrature.size(), n_compositional_fields),
           face_material_model_outputs(face_quadrature.size(), n_compositional_fields),
           reference_densities(use_reference_density_profile ? quadrature.size() : 0, numbers::signaling_nan<double>()),
@@ -150,8 +152,8 @@ namespace aspect
 
           phi_u (scratch.phi_u),
           grads_phi_u (scratch.grads_phi_u),
-          div_phi_u (scratch.div_phi_u),
           velocity_values (scratch.velocity_values),
+          velocity_divergence (scratch.velocity_divergence),
           face_material_model_inputs(scratch.face_material_model_inputs),
           face_material_model_outputs(scratch.face_material_model_outputs),
           reference_densities(scratch.reference_densities),
@@ -514,7 +516,11 @@ namespace aspect
       for (unsigned int c=0; c<introspection.n_compositional_fields; ++c)
         material_model_inputs.composition[q][c] = composition_values[c][q];
 
+    DEAL_II_DISABLE_EXTRA_DIAGNOSTICS
     material_model_inputs.cell = &cell;
+    DEAL_II_ENABLE_EXTRA_DIAGNOSTICS
+
+    material_model_inputs.current_cell = cell;
   }
 
 
@@ -659,13 +665,20 @@ namespace aspect
                                 std_cxx11::cref (*newton_stokes_assembler),
                                 std_cxx11::_1,
                                 std_cxx11::_2,
-                                std_cxx11::_3,
-                                std_cxx11::cref (this->parameters)));
+                                std_cxx11::_3));
     else
-      assemblers->local_assemble_stokes_preconditioner
-      .connect (std_cxx11::bind(&aspect::Assemblers::StokesAssembler<dim>::preconditioner,
-                                std_cxx11::cref (*stokes_assembler),
-                                std_cxx11::_1, std_cxx11::_2, std_cxx11::_3));
+      {
+        assemblers->local_assemble_stokes_preconditioner
+        .connect (std_cxx11::bind(&aspect::Assemblers::StokesAssembler<dim>::preconditioner,
+                                  std_cxx11::cref (*stokes_assembler),
+                                  std_cxx11::_1, std_cxx11::_2, std_cxx11::_3));
+
+        if (material_model->is_compressible())
+          assemblers->local_assemble_stokes_preconditioner
+          .connect (std_cxx11::bind(&aspect::Assemblers::StokesAssembler<dim>::compressible_preconditioner,
+                                    std_cxx11::cref (*stokes_assembler),
+                                    std_cxx11::_1, std_cxx11::_2, std_cxx11::_3));
+      }
 
 
     if (parameters.include_melt_transport)
@@ -687,8 +700,7 @@ namespace aspect
                                   std_cxx11::_2,
                                   std_cxx11::_3,
                                   std_cxx11::_4,
-                                  std_cxx11::_5,
-                                  std_cxx11::cref (this->parameters)));
+                                  std_cxx11::_5));
 
         if (material_model->is_compressible())
           assemblers->local_assemble_stokes_system
@@ -698,8 +710,7 @@ namespace aspect
                                     std_cxx11::_2,
                                     std_cxx11::_3,
                                     std_cxx11::_4,
-                                    std_cxx11::_5,
-                                    std_cxx11::cref (this->parameters)));
+                                    std_cxx11::_5));
 
         if (parameters.formulation_mass_conservation ==
             Parameters<dim>::Formulation::MassConservation::implicit_reference_density_profile)
@@ -839,15 +850,30 @@ namespace aspect
       }
 
     // add the terms for traction boundary conditions
-    assemblers->local_assemble_stokes_system_on_boundary_face
-    .connect (std_cxx11::bind(&aspect::Assemblers::OtherTerms::boundary_traction<dim>,
-                              SimulatorAccess<dim>(*this),
-                              std_cxx11::_1,
-                              std_cxx11::_2,
-                              // discard pressure_scaling,
-                              // discard rebuild_stokes_matrix,
-                              std_cxx11::_5,
-                              std_cxx11::_6));
+    if (parameters.include_melt_transport)
+      {
+        assemblers->local_assemble_stokes_system_on_boundary_face
+        .connect (std_cxx11::bind(&aspect::Assemblers::OtherTerms::boundary_traction_melt<dim>,
+                                  SimulatorAccess<dim>(*this),
+                                  std_cxx11::_1,
+                                  std_cxx11::_2,
+                                  // discard pressure_scaling,
+                                  // discard rebuild_stokes_matrix,
+                                  std_cxx11::_5,
+                                  std_cxx11::_6));
+      }
+    else
+      {
+        assemblers->local_assemble_stokes_system_on_boundary_face
+        .connect (std_cxx11::bind(&aspect::Assemblers::OtherTerms::boundary_traction<dim>,
+                                  SimulatorAccess<dim>(*this),
+                                  std_cxx11::_1,
+                                  std_cxx11::_2,
+                                  // discard pressure_scaling,
+                                  // discard rebuild_stokes_matrix,
+                                  std_cxx11::_5,
+                                  std_cxx11::_6));
+      }
 
     // add the terms necessary to normalize the pressure
     if (do_pressure_rhs_compatibility_modification)
@@ -907,7 +933,6 @@ namespace aspect
                                   // discard cell,
                                   std_cxx11::_2,
                                   std_cxx11::_3));
-
       }
 
     if (parameters.use_discontinuous_temperature_discretization ||
@@ -1189,6 +1214,8 @@ namespace aspect
 
     scratch.finite_element_values[introspection.extractors.velocities].get_function_values(current_linearization_point,
         scratch.velocity_values);
+    if (assemble_newton_stokes_system)
+      scratch.finite_element_values[introspection.extractors.velocities].get_function_divergences(current_linearization_point,scratch.velocity_divergence);
 
     const bool use_reference_density_profile = (parameters.formulation_mass_conservation == Parameters<dim>::Formulation::MassConservation::reference_density_profile)
                                                || (parameters.formulation_mass_conservation == Parameters<dim>::Formulation::MassConservation::implicit_reference_density_profile);
@@ -1201,9 +1228,11 @@ namespace aspect
           }
       }
 
+
     // trigger the invocation of the various functions that actually do
     // all of the assembling
-    assemblers->local_assemble_stokes_system(cell, pressure_scaling, rebuild_stokes_matrix,
+    assemblers->local_assemble_stokes_system(cell, pressure_scaling,
+                                             (!assemble_newton_stokes_system && rebuild_stokes_matrix) || (assemble_newton_stokes_system && assemble_newton_stokes_matrix),
                                              scratch, data);
 
     // then also work on possible face terms. if necessary, initialize
@@ -1244,7 +1273,8 @@ namespace aspect
             }
 
           assemblers->local_assemble_stokes_system_on_boundary_face(cell, face_no,
-                                                                    pressure_scaling, rebuild_stokes_matrix,
+                                                                    pressure_scaling,
+                                                                    (!assemble_newton_stokes_system && rebuild_stokes_matrix) || (assemble_newton_stokes_system && assemble_newton_stokes_matrix),
                                                                     scratch, data);
         }
   }
@@ -1282,7 +1312,7 @@ namespace aspect
       computing_timer.enter_section ("   Assemble Stokes system");
     else if (assemble_newton_stokes_matrix)
       {
-        if (parameters.newton_theta == 0)
+        if (newton_handler->get_newton_derivative_scaling_factor() == 0)
           computing_timer.enter_section ("   Assemble Stokes system picard");
         else
           computing_timer.enter_section ("   Assemble Stokes system newton");
@@ -1496,6 +1526,26 @@ namespace aspect
             scratch.material_model_outputs.densities[q] = adiabatic_conditions->density(scratch.material_model_inputs.position[q]);
           }
       }
+
+#ifdef DEBUG
+    // make sure that if the model does not use operator splitting,
+    // the material model outputs do not fill the reaction_rates (because the reaction_terms are used instead)
+    if (!parameters.use_operator_splitting)
+      {
+        material_model->create_additional_named_outputs(scratch.material_model_outputs);
+        MaterialModel::ReactionRateOutputs<dim> *reaction_rate_outputs
+          = scratch.material_model_outputs.template get_additional_output<MaterialModel::ReactionRateOutputs<dim> >();
+
+        Assert(reaction_rate_outputs == NULL,
+               ExcMessage("You are using a material model where the reaction rate outputs "
+                          "are created even though the operator splitting solver option is "
+                          "not used in the model, this is not supported! "
+                          "If operator splitting is disabled, the reaction_rates should not "
+                          "be created at all. If you want to run a model where reactions are "
+                          "much faster than the advection, which is what the reaction rate "
+                          "outputs are designed for, you should enable operator splitting."));
+      }
+#endif
 
     MaterialModel::MaterialAveraging::average (parameters.material_averaging,
                                                cell,

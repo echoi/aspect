@@ -236,7 +236,9 @@ namespace aspect
     }
 
 
-
+    // We still use the cell reference in the different constructors, although it is deprecated.
+    // Make sure we don't get any compiler warnings.
+    DEAL_II_DISABLE_EXTRA_DIAGNOSTICS
     template <int dim>
     MaterialModelInputs<dim>::MaterialModelInputs(const unsigned int n_points,
                                                   const unsigned int n_comp)
@@ -248,7 +250,8 @@ namespace aspect
       velocity(n_points, numbers::signaling_nan<Tensor<1,dim> >()),
       composition(n_points, std::vector<double>(n_comp, numbers::signaling_nan<double>())),
       strain_rate(n_points, numbers::signaling_nan<SymmetricTensor<2,dim> >()),
-      cell (NULL)
+      cell (NULL),
+      current_cell()
     {}
 
     template <int dim>
@@ -263,7 +266,8 @@ namespace aspect
       velocity(input_data.solution_values.size(), numbers::signaling_nan<Tensor<1,dim> >()),
       composition(input_data.solution_values.size(), std::vector<double>(introspection.n_compositional_fields, numbers::signaling_nan<double>())),
       strain_rate(input_data.solution_values.size(), numbers::signaling_nan<SymmetricTensor<2,dim> >()),
-      cell(NULL)
+      cell(&current_cell),
+      current_cell(input_data.template get_cell<DoFHandler<dim> >())
     {
       for (unsigned int q=0; q<input_data.solution_values.size(); ++q)
         {
@@ -288,10 +292,9 @@ namespace aspect
         }
     }
 
-
     template <int dim>
     MaterialModelInputs<dim>::MaterialModelInputs(const FEValuesBase<dim,dim> &fe_values,
-                                                  const typename DoFHandler<dim>::active_cell_iterator *cell_x,
+                                                  const typename DoFHandler<dim>::active_cell_iterator &cell_x,
                                                   const Introspection<dim> &introspection,
                                                   const LinearAlgebra::BlockVector &solution_vector,
                                                   const bool use_strain_rate)
@@ -303,17 +306,37 @@ namespace aspect
       velocity(fe_values.n_quadrature_points, numbers::signaling_nan<Tensor<1,dim> >()),
       composition(fe_values.n_quadrature_points, std::vector<double>(introspection.n_compositional_fields, numbers::signaling_nan<double>())),
       strain_rate(fe_values.n_quadrature_points, numbers::signaling_nan<SymmetricTensor<2,dim> >()),
-      cell(cell_x)
+      cell(cell_x.state() == IteratorState::valid ? &current_cell : NULL),
+#if DEAL_II_VERSION_GTE(9,0,0)
+      current_cell (cell_x)
+#else
+      current_cell(cell_x.state() == IteratorState::valid ? cell_x : typename DoFHandler<dim>::active_cell_iterator())
+#endif
     {
       // Call the function reinit to populate the new arrays.
-      this->reinit(fe_values, cell, introspection, solution_vector, use_strain_rate);
+      this->reinit(fe_values, current_cell, introspection, solution_vector, use_strain_rate);
     }
+
+    template <int dim>
+    MaterialModelInputs<dim>::MaterialModelInputs(const MaterialModelInputs &material)
+      :
+      position(material.position),
+      temperature(material.temperature),
+      pressure(material.pressure),
+      pressure_gradient(material.pressure_gradient),
+      velocity(material.velocity),
+      composition(material.composition),
+      strain_rate(material.strain_rate),
+      cell(material.cell),
+      current_cell(material.current_cell)
+    {}
+    DEAL_II_ENABLE_EXTRA_DIAGNOSTICS
 
 
     template <int dim>
     void
     MaterialModelInputs<dim>::reinit(const FEValuesBase<dim,dim> &fe_values,
-                                     const typename DoFHandler<dim>::active_cell_iterator *cell_x,
+                                     const typename DoFHandler<dim>::active_cell_iterator &cell_x,
                                      const Introspection<dim> &introspection,
                                      const LinearAlgebra::BlockVector &solution_vector,
                                      const bool use_strain_rate)
@@ -342,7 +365,16 @@ namespace aspect
             this->composition[i][c] = composition_values[c][i];
         }
 
-      this->cell = cell_x;
+      DEAL_II_DISABLE_EXTRA_DIAGNOSTICS
+      this->cell = cell_x.state() == IteratorState::valid ? &cell_x : NULL;
+      DEAL_II_ENABLE_EXTRA_DIAGNOSTICS
+
+#if DEAL_II_VERSION_GTE(9,0,0)
+      this->current_cell = cell_x;
+#else
+      this->current_cell = (cell_x.state() == IteratorState::valid ? cell_x : typename DoFHandler<dim>::active_cell_iterator());
+#endif
+
     }
 
     template <int dim>
@@ -739,7 +771,7 @@ namespace aspect
 
 
     template <int dim>
-    const std::vector<double> &
+    std::vector<double>
     SeismicAdditionalOutputs<dim>::get_nth_output(const unsigned int idx) const
     {
       AssertIndexRange (idx, 2);
@@ -758,6 +790,46 @@ namespace aspect
       return vs;
     }
 
+
+
+    namespace
+    {
+      std::vector<std::string> make_reaction_rate_outputs_names(const unsigned int n_comp)
+      {
+        std::vector<std::string> names;
+        for (unsigned int c=0; c<n_comp; ++c)
+          names.push_back("reaction_rate_C" + Utilities::int_to_string(c));
+
+        return names;
+      }
+    }
+
+
+
+    template<int dim>
+    ReactionRateOutputs<dim>::ReactionRateOutputs (const unsigned int n_points,
+                                                   const unsigned int n_comp)
+      :
+      NamedAdditionalMaterialOutputs<dim>(make_reaction_rate_outputs_names(n_comp)),
+      reaction_rates(n_points, std::vector<double>(n_comp, std::numeric_limits<double>::quiet_NaN()))
+    {}
+
+
+
+    template<int dim>
+    std::vector<double>
+    ReactionRateOutputs<dim>::get_nth_output(const unsigned int idx) const
+    {
+      // we have to extract the reaction rate outputs for one particular compositional
+      // field, but the vector in the material model outputs is sorted so that the
+      // number of evaluation points (and not the compositional fields) is the outer
+      // vector
+      std::vector<double> cth_reaction_rates(reaction_rates.size());
+      for (unsigned int q=0; q<reaction_rates.size(); ++q)
+        cth_reaction_rates[q] = reaction_rates[q][idx];
+
+      return cth_reaction_rates;
+    }
   }
 }
 
@@ -819,6 +891,8 @@ namespace aspect
   template class NamedAdditionalMaterialOutputs<dim>; \
   \
   template class SeismicAdditionalOutputs<dim>; \
+  \
+  template class ReactionRateOutputs<dim>; \
   \
   namespace MaterialAveraging \
   { \

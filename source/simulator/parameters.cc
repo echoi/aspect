@@ -151,7 +151,7 @@ namespace aspect
                        "heat conduction in determining the length of each time step.");
 
     prm.declare_entry ("Nonlinear solver scheme", "IMPES",
-                       Patterns::Selection ("IMPES|iterated IMPES|iterated Stokes|Stokes only|Advection only"),
+                       Patterns::Selection ("IMPES|iterated IMPES|iterated Stokes|Newton Stokes|Stokes only|Advection only"),
                        "The kind of scheme used to resolve the nonlinearity in the system. "
                        "'IMPES' is the classical IMplicit Pressure Explicit Saturation scheme "
                        "in which ones solves the temperatures and Stokes equations exactly "
@@ -318,6 +318,14 @@ namespace aspect
                        "the composition system gets solved. See `linear solver "
                        "tolerance' for more details.");
 
+    prm.declare_entry ("Use operator splitting", "false",
+                       Patterns::Bool(),
+                       "If set to true, the advection and reactions of compositional fields and "
+                       "temperature are solved separately, and can use different time steps. Note that "
+                       "this will only work if the material/heating model fills the reaction\\_rates/"
+                       "heating\\_reaction\\_rates structures. Operator splitting can be used with any "
+                       "existing solver schemes that solve the temperature/composition equations.");
+
     prm.enter_subsection ("Solver parameters");
     {
       prm.enter_subsection ("Newton solver parameters");
@@ -338,6 +346,18 @@ namespace aspect
                            "The maximum number of line search iterations allowed. If the "
                            "criterion is not reached after this iteration, we apply the scaled "
                            "increment to the solution and continue.");
+
+        prm.declare_entry ("Use Newton residual scaling method", "false",
+                           Patterns::Bool (),
+                           "This method allows to slowly introduce the derivatives based on the improvement "
+                           "of the residual. If set to false, the scaling factor for the Newton derivatives "
+                           "is set to one immediately when switching on the Newton solver.");
+
+        prm.declare_entry ("Maximum linear Stokes solver tolerance", "0.9",
+                           Patterns::Double (0,1),
+                           "When the linear Stokes solver tolerance is dynamically chosen, this defines "
+                           "the most loose tolerance allowed.");
+
       }
       prm.leave_subsection ();
       prm.enter_subsection ("AMG parameters");
@@ -379,6 +399,33 @@ namespace aspect
         prm.declare_entry ("AMG output details", "false",
                            Patterns::Bool(),
                            "Turns on extra information on the AMG solver. Note that this will generate much more output.");
+      }
+      prm.leave_subsection ();
+      prm.enter_subsection ("Operator splitting parameters");
+      {
+        prm.declare_entry ("Reaction time step", "1000.0",
+                           Patterns::Double (0),
+                           "Set a time step size for computing reactions of compositional fields and the "
+                           "temperature field in case operator splitting is used. This is only used "
+                           "when the nonlinear solver scheme ``operator splitting'' is selected. "
+                           "The reaction time step must be greater than 0. "
+                           "If you want to prescribe the reaction time step only as a relative value "
+                           "compared to the advection time step as opposed to as an absolute value, you "
+                           "should use the parameter ``Reaction time steps per advection step'' and set "
+                           "this parameter to the same (or larger) value as the ``Maximum time step'' "
+                           "(which is 5.69e+300 by default). "
+                           "Units: Years or seconds, depending on the ``Use years "
+                           "in output instead of seconds'' parameter.");
+
+        prm.declare_entry ("Reaction time steps per advection step", "0",
+                           Patterns::Integer (0),
+                           "The number of reaction time steps done within one advection time step "
+                           "in case operator splitting is used. This is only used if the nonlinear "
+                           "solver scheme ``operator splitting'' is selected. If set to zero, this "
+                           "parameter is ignored. Otherwise, the reaction time step size is chosen according to "
+                           "this criterion and the ``Reaction time step'', whichever yields the "
+                           "smaller time step. "
+                           "Units: none.");
       }
       prm.leave_subsection ();
     }
@@ -1014,6 +1061,8 @@ namespace aspect
       nonlinear_solver = NonlinearSolver::iterated_Stokes;
     else if (prm.get ("Nonlinear solver scheme") == "Stokes only")
       nonlinear_solver = NonlinearSolver::Stokes_only;
+    else if (prm.get ("Nonlinear solver scheme") == "Newton Stokes")
+      nonlinear_solver = NonlinearSolver::Newton_Stokes;
     else if (prm.get ("Nonlinear solver scheme") == "Advection only")
       nonlinear_solver = NonlinearSolver::Advection_only;
     else
@@ -1026,6 +1075,8 @@ namespace aspect
         nonlinear_switch_tolerance = prm.get_double("Nonlinear Newton solver switch tolerance");
         max_pre_newton_nonlinear_iterations = prm.get_integer ("Max pre-Newton nonlinear iterations");
         max_newton_line_search_iterations = prm.get_integer ("Max Newton line search iterations");
+        use_newton_residual_scaling_method = prm.get_bool("Use Newton residual scaling method");
+        maximum_linear_stokes_solver_tolerance = prm.get_double("Maximum linear Stokes solver tolerance");
       }
       prm.leave_subsection ();
       prm.enter_subsection ("AMG parameters");
@@ -1034,6 +1085,16 @@ namespace aspect
         AMG_smoother_sweeps                    = prm.get_integer ("AMG smoother sweeps");
         AMG_aggregation_threshold              = prm.get_double ("AMG aggregation threshold");
         AMG_output_details                     = prm.get_bool ("AMG output details");
+      }
+      prm.leave_subsection ();
+      prm.enter_subsection ("Operator splitting parameters");
+      {
+        reaction_time_step       = prm.get_double("Reaction time step");
+        AssertThrow (reaction_time_step > 0,
+                     ExcMessage("Reaction time step must be greater than 0."));
+        if (convert_to_years == true)
+          reaction_time_step *= year_in_seconds;
+        reaction_steps_per_advection_step = prm.get_integer ("Reaction time steps per advection step");
       }
       prm.leave_subsection ();
     }
@@ -1089,6 +1150,7 @@ namespace aspect
     n_expensive_stokes_solver_steps = prm.get_integer ("Maximum number of expensive Stokes solver steps");
     temperature_solver_tolerance    = prm.get_double ("Temperature solver tolerance");
     composition_solver_tolerance    = prm.get_double ("Composition solver tolerance");
+    use_operator_splitting          = prm.get_bool("Use operator splitting");
 
     prm.enter_subsection ("Mesh refinement");
     {
@@ -1514,6 +1576,13 @@ namespace aspect
     // plugin mechanism, declare their parameters if they have subscribed
     // to the relevant signals
     SimulatorSignals<dim>::parse_additional_parameters (*this, prm);
+
+    AssertThrow((!use_direct_stokes_solver) || (nullspace_removal == NullspaceRemoval::none),
+                ExcMessage("Because of the difference in system partitioning, nullspace removal is "
+                           "currently not compatible with the direct solver. "
+                           "Please turn off one or both of the options 'Model settings/Remove nullspace', "
+                           "or 'Use direct solver for Stokes system', or contribute code to enable "
+                           "this feature combination."));
   }
 
 

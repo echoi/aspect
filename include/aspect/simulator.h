@@ -77,6 +77,9 @@ namespace aspect
   class MeltHandler;
 
   template <int dim>
+  class NewtonHandler;
+
+  template <int dim>
   class FreeSurfaceHandler;
 
   namespace internal
@@ -428,6 +431,91 @@ namespace aspect
       void solve_timestep ();
 
       /**
+       * This function implements one scheme for the various
+       * steps necessary to assemble and solve the nonlinear problem.
+       *
+       * 'IMPES' is the classical IMplicit
+       * Pressure Explicit Saturation scheme in which ones solves
+       * the temperatures and Stokes equations exactly
+       * once per time step, one after the other.
+       *
+       * This function is implemented in
+       * <code>source/simulator/solver_schemes.cc</code>.
+       */
+      void solve_IMPES ();
+
+      /**
+       * This function implements one scheme for the various
+       * steps necessary to assemble and solve the nonlinear problem.
+       *
+       * The 'Stokes only' scheme only solves the Stokes system and ignores
+       * compositions and the temperature equation (careful, the material
+       * model must not depend on the temperature; mostly useful for
+       * Stokes benchmarks).
+       *
+       * This function is implemented in
+       * <code>source/simulator/solver_schemes.cc</code>.
+       */
+      void solve_stokes_only ();
+
+      /**
+       * This function implements one scheme for the various
+       * steps necessary to assemble and solve the nonlinear problem.
+       *
+       * The `iterated IMPES' scheme iterates the decoupled IMPES approach
+       * by alternating the solution of the temperature and Stokes systems.
+       * This is essentially a type of Picard iterations for the whole
+       * system of equations.
+       *
+       * This function is implemented in
+       * <code>source/simulator/solver_schemes.cc</code>.
+       */
+      void solve_iterated_IMPES ();
+
+      /**
+       * This function implements one scheme for the various
+       * steps necessary to assemble and solve the nonlinear problem.
+       *
+       * The `iterated Stokes' scheme solves the temperature and composition
+       * equations once at the beginning of each time step
+       * and then iterates out the solution of the Stokes equation using
+       * Picard iterations.
+       *
+       * This function is implemented in
+       * <code>source/simulator/solver_schemes.cc</code>.
+       */
+      void solve_iterated_stokes ();
+
+      /**
+       * This function implements one scheme for the various
+       * steps necessary to assemble and solve the nonlinear problem.
+       *
+       * 'Newton Stokes' iterates over solving the temperature, composition,
+       * and Stokes equations just like 'iterated IMPES', but for the
+       * Stokes system it is able to switch from a defect correction form of
+       * Picard iterations to Newton iterations after a certain tolerance or
+       * number of iterations is reached. This can greatly improve the
+       * convergence rate for particularly nonlinear viscosities.
+       *
+       * This function is implemented in
+       * <code>source/simulator/solver_schemes.cc</code>.
+       */
+      void solve_newton_stokes ();
+
+      /**
+       * This function implements one scheme for the various
+       * steps necessary to assemble and solve the nonlinear problem.
+       *
+       * The 'Advection only' scheme only solves the temperature and other
+       * advection systems and instead of solving for the Stokes system,
+       * a prescribed velocity and pressure is used."
+       *
+       * This function is implemented in
+       * <code>source/simulator/solver_schemes.cc</code>.
+       */
+      void solve_advection_only ();
+
+      /**
        * Initiate the assembly of the Stokes preconditioner matrix via
        * assemble_stokes_preconditoner(), then set up the data structures to
        * actually build a preconditioner from this matrix.
@@ -454,6 +542,45 @@ namespace aspect
        * <code>source/simulator/assembly.cc</code>.
        */
       void assemble_stokes_system ();
+
+      /**
+       * Assemble and solve the temperature equation.
+       * This function returns the residual after solving
+       * and can optionally compute and store an initial
+       * residual before solving the equation.
+       *
+       * This function is implemented in
+       * <code>source/simulator/solver_schemes.cc</code>.
+       */
+      double assemble_and_solve_temperature (const bool compute_initial_residual = false,
+                                             double *initial_residual = NULL);
+
+      /**
+       * Solve the composition equations with whatever method is selected
+       * (fields or particles). This function returns the residuals for
+       * all fields after solving
+       * and can optionally compute and store the initial
+       * residuals before solving the equation. For lack of a definition
+       * the residuals of all compositional fields that are advected
+       * using particles are considered zero.
+       *
+       * This function is implemented in
+       * <code>source/simulator/solver_schemes.cc</code>.
+       */
+      std::vector<double> assemble_and_solve_composition (const bool compute_initial_residual = false,
+                                                          std::vector<double> *initial_residual = NULL);
+
+      /**
+       * Assemble and solve the Stokes equation.
+       * This function returns the residual after solving
+       * and can optionally compute and store an initial
+       * residual before solving the equation.
+       *
+       * This function is implemented in
+       * <code>source/simulator/solver_schemes.cc</code>.
+       */
+      double assemble_and_solve_stokes (const bool compute_initial_residual = false,
+                                        double *initial_residual = NULL);
 
       /**
        * Initiate the assembly of one advection matrix and right hand side and
@@ -924,6 +1051,32 @@ namespace aspect
        */
       void apply_limiter_to_dg_solutions (const AdvectionField &advection_field);
 
+
+      /**
+       * Compute the reactions in case of operator splitting:
+       * Using the current solution vector, this function makes a number of time
+       * steps determined by the size of the reaction time step, and solves a
+       * system of coupled ordinary differential equations for the reactions between
+       * compositional fields and temperature in each of them. To do that, is uses
+       * the reaction rates outputs from the material and heating models used in
+       * the computation. The solution vector is then updated with the new values
+       * of temperature and composition after the reactions.
+       *
+       * As the ordinary differential equation in any given point is independent
+       * from the solution at all other points, we do not have to assemble a matrix,
+       * but just need to loop over all node locations for the temperature and
+       * compositional fields and compute the update to the solution.
+       *
+       * The function also updates the old solution vectors with the reaction update
+       * so that the advection time stepping scheme will have the correct field terms
+       * for the right-hand side when assembling the advection system.
+       *
+       * This function is implemented in
+       * <code>source/simulator/helper_functions.cc</code>.
+       */
+      void compute_reactions ();
+
+
       /**
        * Interpolate the given function onto the velocity FE space and write
        * it into the given vector.
@@ -1194,6 +1347,27 @@ namespace aspect
       check_consistency_of_formulation ();
 
       /**
+       * Computes the initial Newton residual.
+       */
+      double
+      compute_initial_newton_residual (LinearAlgebra::BlockVector &linearized_stokes_initial_guess);
+
+      /**
+       * This function computes the Eisenstat Walker linear tolerance used for the Newton Stokes solver.
+       * The Eisenstat and Walker (1996) method is used for determining the linear tolerance of
+       * the iteration after the first iteration. The paper gives two preferred choices of computing
+       * this tolerance. Both choices are implemented here with the suggested parameter values and
+       * safeguards.
+       */
+      double
+      compute_Eisenstat_Walker_linear_tolerance(const bool EisenstatWalkerChoiceOne,
+                                                const double maximum_linear_stokes_solver_tolerance,
+                                                const double linear_stokes_solver_tolerance,
+                                                const double stokes_residual,
+                                                const double newton_residual,
+                                                const double newton_residual_old);
+
+      /**
        * This function is called at the end of each time step and writes the
        * statistics object that contains data like the current time, the
        * number of linear solver iterations, and whatever the postprocessors
@@ -1234,7 +1408,14 @@ namespace aspect
        * if we do not need the machinery for doing melt stuff, we do
        * not even allocate it.
        */
-      std_cxx11::shared_ptr<MeltHandler<dim> > melt_handler;
+      std_cxx11::unique_ptr<MeltHandler<dim> > melt_handler;
+
+      /**
+       * Unique pointer for an instance of the NewtonHandler. This way,
+       * if we do not need the machinery for doing Newton stuff, we do
+       * not even allocate it.
+       */
+      std_cxx11::unique_ptr<NewtonHandler<dim> > newton_handler;
 
       SimulatorSignals<dim>               signals;
       const IntermediaryConstructorAction post_signal_creation;
@@ -1272,7 +1453,6 @@ namespace aspect
        */
       TableHandler                        statistics;
 
-      Postprocess::Manager<dim>           postprocess_manager;
       mutable TimerOutput                 computing_timer;
 
       /**
@@ -1365,6 +1545,8 @@ namespace aspect
 
       DoFHandler<dim>                                           dof_handler;
 
+      Postprocess::Manager<dim>                                 postprocess_manager;
+
       /**
        * Constraint objects. The first of these describes all constraints that
        * are not time dependent (e.g., hanging nodes, no-normal-flux
@@ -1430,6 +1612,7 @@ namespace aspect
 //TODO: use n_compositional_field separate preconditioners
       std_cxx11::shared_ptr<LinearAlgebra::PreconditionILU>     C_preconditioner;
 
+      bool                                                      rebuild_sparsity_and_matrices;
       bool                                                      rebuild_stokes_matrix;
       bool                                                      assemble_newton_stokes_matrix;
       bool                                                      assemble_newton_stokes_system;

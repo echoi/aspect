@@ -212,8 +212,9 @@ namespace aspect
     /**
      * Given a vector @p v in @p dim dimensional space, return a set
      * of (dim-1) vectors that are orthogonal to @p v and to each
-     * other. The lengths of these vectors equals that of the original
-     * vector @p v to ensure a well-conditioned basis.
+     * other. The length of each of these vectors equals that of the original
+     * vector @p v to ensure that the resulting set of vectors
+     * represents a well-conditioned basis.
      */
     template <int dim>
     std_cxx11::array<Tensor<1,dim>,dim-1>
@@ -532,6 +533,11 @@ namespace aspect
         std::string
         get_column_name_from_index(const unsigned int column_index) const;
 
+        /**
+         * Return the maximum value of the component values.
+         */
+        double get_maximum_component_value(const unsigned int component) const;
+
       private:
         /**
          * The number of data components read in (=columns in the data file).
@@ -556,6 +562,11 @@ namespace aspect
          * The coordinate values in each direction as specified in the data file.
          */
         std_cxx11::array<std::vector<double>,dim> coordinate_values;
+
+        /**
+         * The maximum value of each component
+         */
+        std::vector<double> maximum_component_value;
 
         /**
          * The min and max of the coordinates in the data file.
@@ -669,6 +680,13 @@ namespace aspect
         get_data_component (const types::boundary_id             boundary_indicator,
                             const Point<dim>                    &position,
                             const unsigned int                   component) const;
+
+        /**
+         * Returns the maximum value of the given data component.
+         */
+        double
+        get_maximum_component_value (const types::boundary_id boundary_indicator,
+                                     const unsigned int       component) const;
 
         /**
          * Declare the parameters all derived classes take from input files.
@@ -972,6 +990,18 @@ namespace aspect
                               const SymmetricTensor<2,dim> &strain_rate,
                               const SymmetricTensor<2,dim> &dviscosities_dstrain_rate,
                               const double safety_factor);
+
+    /**
+     * Converts an array of size dim to a Point of size dim.
+     */
+    template <int dim>
+    Point<dim> convert_array_to_point(const std_cxx11::array<double,dim> &array);
+
+    /**
+     * Converts a Point of size dim to an array of size dim.
+     */
+    template <int dim>
+    std_cxx11::array<double,dim> convert_point_to_array(const Point<dim> &point);
 
     /**
      * A class that represents a binary operator between two doubles. The type of

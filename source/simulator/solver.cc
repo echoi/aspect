@@ -661,12 +661,25 @@ namespace aspect
         // linearized_stokes_variables has a different
         // layout than current_linearization_point, which also contains all the
         // other solution variables.
-        linearized_stokes_initial_guess.block (block_vel) = current_linearization_point.block (block_vel);
+        if (parameters.nonlinear_solver != NonlinearSolver::Newton_Stokes)
+          {
+            linearized_stokes_initial_guess.block (block_vel) = current_linearization_point.block (block_vel);
 
-        linearized_stokes_initial_guess.block (block_p) = current_linearization_point.block (block_p);
-        denormalize_pressure (this->last_pressure_normalization_adjustment,
-                              linearized_stokes_initial_guess,
-                              current_linearization_point);
+            linearized_stokes_initial_guess.block (block_p) = current_linearization_point.block (block_p);
+            denormalize_pressure (this->last_pressure_normalization_adjustment,
+                                  linearized_stokes_initial_guess,
+                                  current_linearization_point);
+          }
+        else
+          {
+            /**
+             * The Newton solver solves for updates to variables, for which we have no good initial guesses.
+             * Therefore, initialize the solution vector for the solver to zero.
+             * TODO: I think that for the first iteration we could actually use a non-zero inital guess.
+             */
+            linearized_stokes_initial_guess.block (block_vel) = 0;
+            linearized_stokes_initial_guess.block (block_p) = 0;
+          }
 
         current_constraints.set_zero (linearized_stokes_initial_guess);
         linearized_stokes_initial_guess.block (block_p) /= pressure_scaling;
@@ -855,15 +868,22 @@ namespace aspect
         solution.block(block_p) = distributed_stokes_solution.block(block_p);
 
         // print the number of iterations to screen
-        pcout << solver_control_cheap.last_step() << '+'
-              << solver_control_expensive.last_step() << " iterations.";
+        pcout << (solver_control_cheap.last_step() != numbers::invalid_unsigned_int ?
+                  solver_control_cheap.last_step():
+                  0)
+              << '+'
+              << (solver_control_expensive.last_step() != numbers::invalid_unsigned_int ?
+                  solver_control_expensive.last_step():
+                  0)
+              << " iterations.";
         pcout << std::endl;
       }
 
 
     // do some cleanup now that we have the solution
     remove_nullspace(solution, distributed_stokes_solution);
-    this->last_pressure_normalization_adjustment = normalize_pressure(solution);
+    if (parameters.nonlinear_solver != NonlinearSolver::Newton_Stokes)
+      this->last_pressure_normalization_adjustment = normalize_pressure(solution);
 
     // convert melt pressures:
     if (parameters.include_melt_transport)

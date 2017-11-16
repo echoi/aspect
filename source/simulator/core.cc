@@ -24,6 +24,7 @@
 #include <aspect/assembly.h>
 #include <aspect/utilities.h>
 #include <aspect/melt.h>
+#include <aspect/newton.h>
 #include <aspect/free_surface.h>
 
 #include <aspect/geometry_model/initial_topography_model/zero_topography.h>
@@ -92,7 +93,7 @@ namespace aspect
     template <int dim>
     std::vector<VariableDeclaration<dim> > construct_variables(const Parameters<dim> &parameters,
                                                                SimulatorSignals<dim> &signals,
-                                                               std_cxx11::shared_ptr<MeltHandler<dim> > &melt_handler)
+                                                               std_cxx11::unique_ptr<MeltHandler<dim> > &melt_handler)
     {
       std::vector<VariableDeclaration<dim> > variables
         = construct_default_variables (parameters);
@@ -150,6 +151,7 @@ namespace aspect
     assemblers (new internal::Assembly::AssemblerLists<dim>()),
     parameters (prm, mpi_communicator_),
     melt_handler (parameters.include_melt_transport ? new MeltHandler<dim> (prm) : NULL),
+    newton_handler (parameters.nonlinear_solver == NonlinearSolver::Newton_Stokes ? new NewtonHandler<dim> () : NULL),
     post_signal_creation(
       std_cxx11::bind (&internals::SimulatorSignals::call_connector_functions<dim>,
                        std_cxx11::ref(signals))),
@@ -209,7 +211,7 @@ namespace aspect
 
     rebuild_stokes_matrix (true),
     assemble_newton_stokes_matrix (true),
-    assemble_newton_stokes_system (false),
+    assemble_newton_stokes_system (parameters.nonlinear_solver == NonlinearSolver::Newton_Stokes ? true : false),
     rebuild_stokes_preconditioner (true)
   {
     if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
@@ -532,8 +534,9 @@ namespace aspect
         // It should be possible to make the free surface work with any of a number of nonlinear
         // schemes, but I do not see a way to do it in generality --IR
         AssertThrow( parameters.nonlinear_solver == NonlinearSolver::IMPES ||
-                     parameters.nonlinear_solver == NonlinearSolver::iterated_Stokes,
-                     ExcMessage("The free surface scheme is only implemented for the IMPES or Iterated Stokes solver") );
+                     parameters.nonlinear_solver == NonlinearSolver::iterated_Stokes ||
+                     parameters.nonlinear_solver == NonlinearSolver::Newton_Stokes,
+                     ExcMessage("The free surface scheme is only implemented for the IMPES, Iterated Stokes solver or the Newton Stokes solver.") );
         // Pressure normalization doesn't really make sense with a free surface, and if we do
         // use it, we can run into problems with geometry_model->depth().
         AssertThrow ( parameters.pressure_normalization == "no",
@@ -657,6 +660,11 @@ namespace aspect
 
     // check that the setup of equations, material models, and heating terms is consistent
     check_consistency_of_formulation();
+
+    // If the solver type is a Newton type of solver, we need to set make sure
+    // assemble_newton_stokes_system set to true.
+    if (parameters.nonlinear_solver == NonlinearSolver::Newton_Stokes)
+      assemble_newton_stokes_system = true;
 
     // now that all member variables have been set up, also
     // connect the functions that will actually do the assembly
@@ -807,15 +815,15 @@ namespace aspect
     // into current_constraints and then add to current_constraints
     compute_current_constraints ();
 
-
-    // TODO: do this in a more efficient way (TH)? we really only need
-    // to make sure that the time dependent velocity boundary conditions
-    // end up in the right hand side in the right way; we currently do
-    // that by re-assembling the entire system
-    if (!boundary_velocity.empty())
-      rebuild_stokes_matrix = rebuild_stokes_preconditioner = true;
-
-
+    // If needed, construct sparsity patterns and matrices with the current
+    // constraints. Of course we need to force assembly too.
+    if (rebuild_sparsity_and_matrices)
+      {
+        rebuild_sparsity_and_matrices = false;
+        setup_system_matrix (introspection.index_sets.system_partitioning);
+        setup_system_preconditioner (introspection.index_sets.system_partitioning);
+        rebuild_stokes_matrix = rebuild_stokes_preconditioner = true;
+      }
 
     // notify different system components that we started the next time step
     // TODO: implement this for all plugins that might need it at one place.
@@ -899,12 +907,24 @@ namespace aspect
                 mask[i]=introspection.component_masks.velocities[i];
             }
 
-          VectorTools::interpolate_boundary_values (*mapping,
-                                                    dof_handler,
-                                                    p->first,
-                                                    vel,
-                                                    current_constraints,
-                                                    mask);
+          if (!assemble_newton_stokes_system || (assemble_newton_stokes_system && nonlinear_iteration == 0))
+            {
+              VectorTools::interpolate_boundary_values (*mapping,
+                                                        dof_handler,
+                                                        p->first,
+                                                        vel,
+                                                        current_constraints,
+                                                        mask);
+            }
+          else
+            {
+              VectorTools::interpolate_boundary_values (*mapping,
+                                                        dof_handler,
+                                                        p->first,
+                                                        ZeroFunction<dim>(introspection.n_components),
+                                                        current_constraints,
+                                                        mask);
+            }
         }
     }
 
@@ -1115,7 +1135,7 @@ namespace aspect
 
         DoFTools::make_flux_sparsity_pattern (dof_handler,
                                               sp,
-                                              constraints, false,
+                                              current_constraints, false,
                                               coupling,
                                               face_coupling,
                                               Utilities::MPI::
@@ -1124,7 +1144,7 @@ namespace aspect
     else
       DoFTools::make_sparsity_pattern (dof_handler,
                                        coupling, sp,
-                                       constraints, false,
+                                       current_constraints, false,
                                        Utilities::MPI::
                                        this_mpi_process(mpi_communicator));
 
@@ -1246,7 +1266,7 @@ namespace aspect
 
         DoFTools::make_flux_sparsity_pattern (dof_handler,
                                               sp,
-                                              constraints, false,
+                                              current_constraints, false,
                                               coupling,
                                               face_coupling,
                                               Utilities::MPI::
@@ -1255,7 +1275,7 @@ namespace aspect
     else
       DoFTools::make_sparsity_pattern (dof_handler,
                                        coupling, sp,
-                                       constraints, false,
+                                       current_constraints, false,
                                        Utilities::MPI::
                                        this_mpi_process(mpi_communicator));
 
@@ -1398,10 +1418,9 @@ namespace aspect
     constraints.close();
     signals.post_compute_no_normal_flux_constraints(triangulation);
 
-    // finally initialize vectors, matrices, etc.
-
-    setup_system_matrix (introspection.index_sets.system_partitioning);
-    setup_system_preconditioner (introspection.index_sets.system_partitioning);
+    // Finally initialize vectors. We delay construction of the sparsity
+    // patterns and matrices until we have current_constraints.
+    rebuild_sparsity_and_matrices = true;
 
     system_rhs.reinit(introspection.index_sets.system_partitioning, mpi_communicator);
     solution.reinit(introspection.index_sets.system_partitioning, introspection.index_sets.system_relevant_partitioning, mpi_communicator);
@@ -1693,97 +1712,6 @@ namespace aspect
     global_volume = GridTools::volume (triangulation, *mapping);
   }
 
-  /**
-   * Converts a function with a certain number of components into a Function@dim@
-   * with optionally having additional zero components.
-   **/
-  template <int dim>
-  class VectorFunctionFromVectorFunctionObject : public Function<dim>
-  {
-    public:
-      /**
-       * Converts a function with @p n_object_components components into a Function@dim@
-       * while optionally providing additional components that are set to zero.
-       *
-       * @param function_object The function that will form the components
-       *     of the resulting Function object.
-       * @param first_component The first component that should be
-       *     filled.
-       * @param n_object_components The number of components that should be
-       *     filled from the first.
-       * @param n_total_components The total number of vector components of the
-       *     resulting Function object.
-       **/
-
-      VectorFunctionFromVectorFunctionObject (const std_cxx1x::function<void (const Point<dim> &,Vector<double> &)> &function_object,
-                                              const unsigned int first_component,
-                                              const unsigned int n_object_components,
-                                              const unsigned int n_total_components)
-        :
-        Function<dim>(n_total_components),
-        function_object (function_object),
-        first_component (first_component),
-        n_object_components (n_object_components)
-      {
-        Assert ((n_object_components > 0
-                 &&
-                 first_component+n_object_components <= n_total_components),
-                ExcMessage ("Number of objects components needs to be less than number of total components"));
-      }
-
-      double
-      value (const Point<dim> &p,
-             const unsigned int component) const
-      {
-        Assert (component < this->n_components,
-                ExcIndexRange (component, 0, this->n_components));
-
-        if (component < first_component)
-          return 0;
-        else if (component >= first_component + n_object_components)
-          return 0;
-        else
-          {
-            Vector<double> temp(n_object_components);
-            function_object (p, temp);
-            return temp(component - first_component);
-          }
-      }
-
-      void
-      vector_value (const Point<dim>   &p,
-                    Vector<double>     &values) const
-      {
-        AssertDimension(values.size(), this->n_components);
-
-        // set everything to zero, and then the right components to their correct values
-        values = 0;
-        Vector<double> temp(n_object_components);
-        function_object (p, temp);
-        for (unsigned int i = 0; i < n_object_components; i++)
-          {
-            values(first_component + i) = temp(i);
-          }
-      }
-
-    private:
-      /**
-       * The function object which we call when this class's solution() function is called.
-       **/
-      const std_cxx1x::function<void (const Point<dim> &,Vector<double> &)> function_object;
-
-      /**
-       * The first vector component whose value is to be filled by the given
-       * function.
-       */
-      const unsigned int first_component;
-      /**
-       * The number of vector components whose values are to be filled by the given
-       * function.
-       */
-      const unsigned int n_object_components;
-
-  };
 
 
   template <int dim>
@@ -1809,405 +1737,53 @@ namespace aspect
         current_linearization_point = distr_solution;
       }
 
+    // The free surface scheme is currently not built to work inside a nonlinear solver.
+    // We do the free surface execution at the beginning of the timestep for a specific reason.
+    // The time step size is calculated AFTER the whole solve_timestep() function.  If we call
+    // free_surface_execute() after the Stokes solve, it will be before we know what the appropriate
+    // time step to take is, and we will timestep the boundary incorrectly.
+    if (parameters.free_surface_enabled)
+      free_surface->execute ();
+
+    // Compute the reactions of compositional fields and temperature in case of operator splitting.
+    if (parameters.use_operator_splitting)
+      compute_reactions ();
+
     switch (parameters.nonlinear_solver)
       {
         case NonlinearSolver::IMPES:
         {
-          // We do the free surface execution at the beginning of the timestep for a specific reason.
-          // The time step size is calculated AFTER the whole solve_timestep() function.  If we call
-          // free_surface_execute() after the Stokes solve, it will be before we know what the appropriate
-          // time step to take is, and we will timestep the boundary incorrectly.
-          if (parameters.free_surface_enabled)
-            free_surface->execute ();
-
-          assemble_advection_system (AdvectionField::temperature());
-          solve_advection(AdvectionField::temperature());
-
-          current_linearization_point.block(introspection.block_indices.temperature)
-            = solution.block(introspection.block_indices.temperature);
-
-          for (unsigned int c=0; c < introspection.n_compositional_fields; ++c)
-            {
-              const AdvectionField adv_field (AdvectionField::composition(c));
-              const typename Parameters<dim>::AdvectionFieldMethod::Kind method = adv_field.advection_method(introspection);
-              switch (method)
-                {
-                  case Parameters<dim>::AdvectionFieldMethod::fem_field:
-                    assemble_advection_system (adv_field);
-                    solve_advection(adv_field);
-                    break;
-
-                  case Parameters<dim>::AdvectionFieldMethod::particles:
-                    interpolate_particle_properties(adv_field);
-                    break;
-
-                  default:
-                    AssertThrow(false,ExcNotImplemented());
-                }
-            }
-
-          for (unsigned int c=0; c<introspection.n_compositional_fields; ++c)
-            current_linearization_point.block(introspection.block_indices.compositional_fields[c])
-              = solution.block(introspection.block_indices.compositional_fields[c]);
-
-          // the Stokes matrix depends on the viscosity. if the viscosity
-          // depends on other solution variables, then after we need to
-          // update the Stokes matrix in every time step and so need to set
-          // the following flag. if we change the Stokes matrix we also
-          // need to update the Stokes preconditioner.
-          if (stokes_matrix_depends_on_solution() == true)
-            rebuild_stokes_matrix = rebuild_stokes_preconditioner = true;
-
-          assemble_stokes_system();
-          build_stokes_preconditioner();
-          solve_stokes();
-
-          if (parameters.run_postprocessors_on_nonlinear_iterations)
-            postprocess ();
-
+          solve_IMPES();
           break;
         }
 
         case NonlinearSolver::Stokes_only:
         {
-          double initial_stokes_residual = 0.0;
-
-          do
-            {
-              // the Stokes matrix depends on the viscosity. if the viscosity
-              // depends on other solution variables, then we need to
-              // update the Stokes matrix in every iteration and so need to set
-              // the rebuild_stokes_matrix flag. if we change the Stokes matrix we also
-              // need to update the Stokes preconditioner.
-              //
-              // there is a similar case where this nonlinear solver can be used, namely for
-              // compressible models. in that case, the matrix does not depend on
-              // the previous solution, but we still need to iterate since the right
-              // hand side depends on it. in those cases, the matrix does not change,
-              // but if we have to repeat computing the right hand side, we need to
-              // also rebuild the matrix if we end up with inhomogeneous velocity
-              // boundary conditions (i.e., if there are prescribed velocity boundary
-              // indicators)
-              if ((stokes_matrix_depends_on_solution() == true)
-                  ||
-                  (parameters.prescribed_velocity_boundary_indicators.size() > 0))
-                rebuild_stokes_matrix = true;
-              if (stokes_matrix_depends_on_solution() == true)
-                rebuild_stokes_preconditioner = true;
-
-              assemble_stokes_system();
-              build_stokes_preconditioner();
-
-              if (nonlinear_iteration==0)
-                initial_stokes_residual = compute_initial_stokes_residual();
-
-              const double stokes_residual = solve_stokes();
-
-              const double relative_tolerance = (initial_stokes_residual > 0) ? stokes_residual/initial_stokes_residual : 0.0;
-
-              pcout << "      Relative Stokes residual after nonlinear iteration " << nonlinear_iteration+1
-                    << ": " << relative_tolerance
-                    << std::endl;
-
-              if (parameters.run_postprocessors_on_nonlinear_iterations)
-                postprocess ();
-
-              if (relative_tolerance < parameters.nonlinear_tolerance)
-                break;
-
-              current_linearization_point = solution;
-
-              ++nonlinear_iteration;
-            }
-          while (! ((nonlinear_iteration >= parameters.max_nonlinear_iterations) // regular timestep
-                    ||
-                    ((pre_refinement_step < parameters.initial_adaptive_refinement) // pre-refinement
-                     &&
-                     (nonlinear_iteration >= parameters.max_nonlinear_iterations_in_prerefinement))));
+          solve_stokes_only();
           break;
         }
 
-
         case NonlinearSolver::iterated_IMPES:
         {
-          double initial_temperature_residual = 0;
-          double initial_stokes_residual      = 0;
-          std::vector<double> initial_composition_residual (introspection.n_compositional_fields,0);
-
-          do
-            {
-              assemble_advection_system(AdvectionField::temperature());
-
-              if (nonlinear_iteration == 0)
-                initial_temperature_residual = system_rhs.block(introspection.block_indices.temperature).l2_norm();
-
-              const double temperature_residual = solve_advection(AdvectionField::temperature());
-              const double relative_temperature_residual = (initial_temperature_residual > 0)
-                                                           ?
-                                                           temperature_residual/initial_temperature_residual
-                                                           :
-                                                           0.0;
-
-              current_linearization_point.block(introspection.block_indices.temperature)
-                = solution.block(introspection.block_indices.temperature);
-              rebuild_stokes_matrix = true;
-              std::vector<double> relative_composition_residual (introspection.n_compositional_fields,0);
-
-              for (unsigned int c=0; c<introspection.n_compositional_fields; ++c)
-                {
-                  const AdvectionField adv_field (AdvectionField::composition(c));
-                  typename Parameters<dim>::AdvectionFieldMethod::Kind method = adv_field.advection_method(introspection);
-                  switch (method)
-                    {
-                      case Parameters<dim>::AdvectionFieldMethod::fem_field:
-                      {
-                        assemble_advection_system (adv_field);
-
-                        if (nonlinear_iteration == 0)
-                          initial_composition_residual[c] = system_rhs.block(introspection.block_indices.compositional_fields[c]).l2_norm();
-
-                        const double composition_residual
-                          = solve_advection(adv_field);
-
-                        relative_composition_residual[c] = (initial_composition_residual[c] > 0)
-                                                           ?
-                                                           composition_residual/initial_composition_residual[c]
-                                                           :
-                                                           0.0;
-                      }
-                      break;
-
-                      case Parameters<dim>::AdvectionFieldMethod::particles:
-                        interpolate_particle_properties(adv_field);
-                        break;
-
-                      default:
-                        AssertThrow(false,ExcNotImplemented());
-                    }
-                }
-
-              // for consistency we update the current linearization point only after we have solved
-              // all fields, so that we use the same point in time for every field when solving
-              for (unsigned int c=0; c<introspection.n_compositional_fields; ++c)
-                current_linearization_point.block(introspection.block_indices.compositional_fields[c])
-                  = solution.block(introspection.block_indices.compositional_fields[c]);
-
-              // the Stokes matrix depends on the viscosity. if the viscosity
-              // depends on other solution variables, then after we need to
-              // update the Stokes matrix in every time step and so need to set
-              // the following flag. if we change the Stokes matrix we also
-              // need to update the Stokes preconditioner.
-              if (stokes_matrix_depends_on_solution() == true)
-                rebuild_stokes_matrix = rebuild_stokes_preconditioner = true;
-
-              assemble_stokes_system();
-              build_stokes_preconditioner();
-
-              if (nonlinear_iteration == 0)
-                initial_stokes_residual = compute_initial_stokes_residual();
-
-              const double stokes_residual = solve_stokes();
-              const double relative_stokes_residual = (initial_stokes_residual > 0) ? stokes_residual/initial_stokes_residual : 0.0;
-
-              current_linearization_point = solution;
-
-              // write the residual output in the same order as the output when
-              // solving the equations, output only relative residuals
-              pcout << "      Relative nonlinear residuals: " << relative_temperature_residual;
-              for (unsigned int c=0; c<introspection.n_compositional_fields; ++c)
-                pcout << ", " << relative_composition_residual[c];
-              pcout << ", " << relative_stokes_residual;
-              pcout << std::endl;
-
-              double max = 0.0;
-              for (unsigned int c=0; c<introspection.n_compositional_fields; ++c)
-                {
-                  // in models with melt migration the melt advection equation includes the divergence of the velocity
-                  // and can not be expected to converge to a smaller value than the residual of the Stokes equation.
-                  // thus, we set a threshold for the initial composition residual.
-                  // this only plays a role if the right-hand side of the advection equation is very small.
-                  const double threshold = (parameters.include_melt_transport && c == introspection.compositional_index_for_name("porosity")
-                                            ?
-                                            parameters.linear_stokes_solver_tolerance * time_step
-                                            :
-                                            0.0);
-                  if (initial_composition_residual[c]>threshold)
-                    max = std::max(relative_composition_residual[c],max);
-                }
-
-              max = std::max(relative_stokes_residual, max);
-              max = std::max(relative_temperature_residual, max);
-              pcout << "      Total relative residual after nonlinear iteration " << nonlinear_iteration+1 << ": " << max << std::endl;
-              pcout << std::endl
-                    << std::endl;
-
-              if (parameters.run_postprocessors_on_nonlinear_iterations)
-                postprocess ();
-
-              if (max < parameters.nonlinear_tolerance)
-                break;
-
-              ++nonlinear_iteration;
-
-//TODO: terminate here if the number of iterations is too large and we see no convergence
-            }
-          while (! ((nonlinear_iteration >= parameters.max_nonlinear_iterations) // regular timestep
-                    ||
-                    ((pre_refinement_step < parameters.initial_adaptive_refinement) // pre-refinement
-                     &&
-                     (nonlinear_iteration >= parameters.max_nonlinear_iterations_in_prerefinement))));
-
+          solve_iterated_IMPES();
           break;
         }
 
         case NonlinearSolver::iterated_Stokes:
         {
-          if (parameters.free_surface_enabled)
-            free_surface->execute ();
+          solve_iterated_stokes();
+          break;
+        }
 
-          // solve the temperature and composition systems once...
-          assemble_advection_system (AdvectionField::temperature());
-          solve_advection(AdvectionField::temperature());
-          current_linearization_point.block(introspection.block_indices.temperature)
-            = solution.block(introspection.block_indices.temperature);
-
-          for (unsigned int c=0; c<introspection.n_compositional_fields; ++c)
-            {
-              const AdvectionField adv_field (AdvectionField::composition(c));
-              typename Parameters<dim>::AdvectionFieldMethod::Kind method = adv_field.advection_method(introspection);
-              switch (method)
-                {
-                  case Parameters<dim>::AdvectionFieldMethod::fem_field:
-                    assemble_advection_system (adv_field);
-                    solve_advection(adv_field);
-                    break;
-
-                  case Parameters<dim>::AdvectionFieldMethod::particles:
-                    interpolate_particle_properties(adv_field);
-                    break;
-
-                  default:
-                    AssertThrow(false,ExcNotImplemented());
-                }
-            }
-
-          for (unsigned int c=0; c<introspection.n_compositional_fields; ++c)
-            current_linearization_point.block(introspection.block_indices.compositional_fields[c])
-              = solution.block(introspection.block_indices.compositional_fields[c]);
-
-          // residual vector (only for the velocity)
-          LinearAlgebra::Vector residual (introspection.index_sets.system_partitioning[0], mpi_communicator);
-          LinearAlgebra::Vector tmp (introspection.index_sets.system_partitioning[0], mpi_communicator);
-
-          // ...and then iterate the solution of the Stokes system
-          double initial_stokes_residual = 0;
-          for (nonlinear_iteration=0; (! ((nonlinear_iteration >= parameters.max_nonlinear_iterations) // regular timestep
-                                          ||
-                                          ((pre_refinement_step < parameters.initial_adaptive_refinement) // pre-refinement
-                                           &&
-                                           (nonlinear_iteration >= parameters.max_nonlinear_iterations_in_prerefinement)))); ++nonlinear_iteration)
-            {
-              // rebuild the matrix if it actually depends on the solution
-              // of the previous iteration.
-              if ((stokes_matrix_depends_on_solution() == true)
-                  ||
-                  (parameters.prescribed_velocity_boundary_indicators.size() > 0))
-                rebuild_stokes_matrix = rebuild_stokes_preconditioner = true;
-
-              assemble_stokes_system();
-              build_stokes_preconditioner();
-
-              if (nonlinear_iteration==0)
-                initial_stokes_residual = compute_initial_stokes_residual();
-
-              const double stokes_residual = solve_stokes();
-              const double relative_stokes_residual = (initial_stokes_residual > 0) ? stokes_residual/initial_stokes_residual : 0.0;
-
-              pcout << "      Relative Stokes residual after nonlinear iteration " << nonlinear_iteration+1
-                    << ": " << relative_stokes_residual
-                    << std::endl;
-
-              if (parameters.run_postprocessors_on_nonlinear_iterations)
-                postprocess ();
-
-              if (stokes_residual/initial_stokes_residual < parameters.nonlinear_tolerance)
-                {
-                  break; // convergence reached, exit nonlinear iterations.
-                }
-
-              current_linearization_point.block(introspection.block_indices.velocities)
-                = solution.block(introspection.block_indices.velocities);
-              if (introspection.block_indices.velocities != introspection.block_indices.pressure)
-                current_linearization_point.block(introspection.block_indices.pressure)
-                  = solution.block(introspection.block_indices.pressure);
-
-              pcout << std::endl;
-            }
-
+        case NonlinearSolver::Newton_Stokes:
+        {
+          solve_newton_stokes();
           break;
         }
 
         case NonlinearSolver::Advection_only:
         {
-          // Identical to IMPES except does not solve Stokes equation
-          if (parameters.free_surface_enabled)
-            free_surface->execute ();
-
-          LinearAlgebra::BlockVector distributed_stokes_solution (introspection.index_sets.system_partitioning, mpi_communicator);
-
-          VectorFunctionFromVectorFunctionObject<dim> func(std_cxx1x::bind (&PrescribedStokesSolution::Interface<dim>::stokes_solution,
-                                                                            std_cxx1x::cref(*prescribed_stokes_solution),
-                                                                            std_cxx1x::_1,
-                                                                            std_cxx1x::_2),
-                                                           0,
-                                                           dim+1, // velocity and pressure
-                                                           introspection.n_components);
-
-          VectorTools::interpolate (*mapping, dof_handler, func, distributed_stokes_solution);
-
-          const unsigned int block_vel = introspection.block_indices.velocities;
-          const unsigned int block_p = introspection.block_indices.pressure;
-
-          // distribute hanging node and
-          // other constraints
-          current_constraints.distribute (distributed_stokes_solution);
-
-          solution.block(block_vel) = distributed_stokes_solution.block(block_vel);
-          solution.block(block_p) = distributed_stokes_solution.block(block_p);
-
-          assemble_advection_system (AdvectionField::temperature());
-          solve_advection(AdvectionField::temperature());
-
-          current_linearization_point.block(introspection.block_indices.temperature)
-            = solution.block(introspection.block_indices.temperature);
-
-          for (unsigned int c=0; c<introspection.n_compositional_fields; ++c)
-            {
-              const AdvectionField adv_field (AdvectionField::composition(c));
-              typename Parameters<dim>::AdvectionFieldMethod::Kind method = adv_field.advection_method(introspection);
-              switch (method)
-                {
-                  case Parameters<dim>::AdvectionFieldMethod::fem_field:
-                    assemble_advection_system (adv_field);
-                    solve_advection(adv_field);
-                    break;
-
-                  case Parameters<dim>::AdvectionFieldMethod::particles:
-                    interpolate_particle_properties(adv_field);
-                    break;
-
-                  default:
-                    AssertThrow(false,ExcNotImplemented());
-                }
-            }
-
-          for (unsigned int c=0; c<introspection.n_compositional_fields; ++c)
-            current_linearization_point.block(introspection.block_indices.compositional_fields[c])
-              = solution.block(introspection.block_indices.compositional_fields[c]);
-
-          if (parameters.run_postprocessors_on_nonlinear_iterations)
-            postprocess ();
-
+          solve_advection_only();
           break;
         }
 
@@ -2249,6 +1825,10 @@ namespace aspect
       }
     else
       {
+        time                      = parameters.start_time;
+        timestep_number           = 0;
+        time_step = old_time_step = 0;
+
         // Instead of calling global_refine(n) we flag all cells for
         // refinement and then allow the mesh refinement plugins to unflag
         // the cells if desired. This procedure is repeated n times. If there
@@ -2264,10 +1844,6 @@ namespace aspect
             mesh_refinement_manager.tag_additional_cells ();
             triangulation.execute_coarsening_and_refinement();
           }
-
-        time                      = parameters.start_time;
-        timestep_number           = 0;
-        time_step = old_time_step = 0;
 
         setup_dofs();
 

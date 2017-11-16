@@ -219,7 +219,6 @@ namespace aspect
     AssertThrow(particle_postprocessor != 0,
                 ExcMessage("Did not find the <particles> postprocessor when trying to interpolate particle properties."));
 
-    const std::multimap<aspect::Particle::types::LevelInd, Particle::Particle<dim> > *particles = &particle_postprocessor->get_particle_world().get_particles();
     const Particle::Interpolator::Interface<dim> *particle_interpolator = &particle_postprocessor->get_particle_world().get_interpolator();
     const Particle::Property::Manager<dim> *particle_property_manager = &particle_postprocessor->get_particle_world().get_property_manager();
 
@@ -272,7 +271,10 @@ namespace aspect
           property_mask.set(particle_property,true);
 
           const std::vector<std::vector<double> > particle_properties =
-            particle_interpolator->properties_at_points(*particles,quadrature_points,property_mask,cell);
+            particle_interpolator->properties_at_points(particle_postprocessor->get_particle_world().get_particle_handler(),
+                                                        quadrature_points,
+                                                        property_mask,
+                                                        cell);
 
           // go through the composition dofs and set their global values
           // to the particle field interpolated at these points
@@ -331,31 +333,32 @@ namespace aspect
         LinearAlgebra::BlockVector system_tmp;
         system_tmp.reinit (system_rhs);
 
+        // First grab the correct pressure to work on:
+        const FEVariable<dim> &pressure_variable
+          = parameters.include_melt_transport ?
+            introspection.variable("fluid pressure")
+            : introspection.variable("pressure");
+        const unsigned int pressure_comp = pressure_variable.first_component_index;
+        const ComponentMask pressure_component_mask = pressure_variable.component_mask;
+
         // interpolate the pressure given by the adiabatic conditions
         // object onto the solution space. note that interpolate
         // wants a function that represents all components of the
         // solution vector, so create such a function object
         // that is simply zero for all velocity components
-        const unsigned int pressure_comp =
-          parameters.include_melt_transport ?
-          introspection.variable("fluid pressure").first_component_index
-          :
-          introspection.component_indices.pressure;
-
         VectorTools::interpolate (*mapping, dof_handler,
                                   VectorFunctionFromScalarFunctionObject<dim> (std_cxx11::bind (&AdiabaticConditions::Interface<dim>::pressure,
                                                                                std_cxx11::cref (*adiabatic_conditions),
                                                                                std_cxx11::_1),
                                                                                pressure_comp,
                                                                                introspection.n_components),
-                                  system_tmp);
+                                  system_tmp,
+                                  pressure_component_mask);
 
         // we may have hanging nodes, so apply constraints
         constraints.distribute (system_tmp);
 
-        const unsigned int pressure_block = (parameters.include_melt_transport ?
-                                             introspection.variable("fluid pressure").block_index
-                                             : introspection.block_indices.pressure);
+        const unsigned int pressure_block = pressure_variable.block_index;
         old_solution.block(pressure_block) = system_tmp.block(pressure_block);
       }
     else
